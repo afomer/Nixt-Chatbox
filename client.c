@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <unistd.h>    /* for getopt */
+#include <unistd.h>
 #include <stdio_ext.h>
 
 #define MAXLINE 1024   
@@ -14,7 +14,7 @@
 #define BLUE    "\x1b[34m"
 #define MAGENTA "\x1b[35m"
 #define CYAN    "\x1b[36m"
-#define RESET   "\x1b[0m"
+#define RESET   "\x1b[0m" // Reset color code
 
 
 
@@ -22,6 +22,10 @@
 
 void usage(void); // Prints info about app
 void showCommands(void); // Show commands for user
+void printUsers(void); // Show all users
+void startChat();
+void startGroup();
+void printHelpInfo(); // prints help info: add later
 
 
 int main(int argc, char **argv)
@@ -31,7 +35,7 @@ int main(int argc, char **argv)
     char buf[MAXLINE];
     char* name = getenv("LOGNAME"); 
 
-	while ((c = getopt(argc, argv, "hvp")) != EOF) {
+	while ((c = getopt(argc, argv, "hv")) != EOF) {
         switch (c) {
         case 'h':             /* print help message */
             usage();
@@ -45,11 +49,11 @@ int main(int argc, char **argv)
     }
 
     (void)verbose; // to avoid compiler warning. Will be used later.
-    printf(GREEN "Welcome to Unix ChatBox, " RESET);
+    printf(GREEN "Welcome to the Unix ChatBox, " RESET);
     printf(CYAN "%s \n" RESET, name);
     printf("Created By Abubaker Omer, Julian Sam and Mohammed Hashim.\n");
-    printf("Type !h for help\n");
-    printf("Type \"c\" to see possible commands\n");
+    // printf("Type \"h\" for help\n");
+    printf("Type " YELLOW "\"c\"" RESET " to see possible commands\n");
 
 
 
@@ -67,8 +71,20 @@ int main(int argc, char **argv)
 		if (strlen(buf) == 2 && buf[0] == 'c') // Show commands
 			showCommands();
 
-		else if (strlen(buf) == 5 && !strcmp("exit\n",buf)) // Exit client
+		else if (((!strcmp("exit\n",buf) || !strcmp("quit\n",buf))
+					&& strlen(buf) == 5)
+					|| (!strcmp("q\n",buf) && strlen(buf) == 2)) // Exit client
 			exit(0);
+
+		else if (!strcmp("chat\n",buf) && strlen(buf) == 5) // Exit client
+			startChat();
+
+		else if (!strcmp("group\n",buf) && strlen(buf) == 6) // Exit client
+			startGroup();
+
+		else if (!strcmp("users\n",buf) && strlen(buf) == 6 )
+			printUsers();
+
 
 		else {
 			printf("%s", buf); // Print back given input (echo it)
@@ -93,9 +109,45 @@ void usage(void)
 void showCommands(void)
 {
     printf("User Commands:\n");
-    printf("   \"users\" : Show users on this machine\n");
-    printf("   \"chat\"  : Start a chat with a user\n");
-    printf("   \"group\" : Start a group chat\n");
-    printf("   \"exit\"  : Exit\n");
+    printf(YELLOW "   \"users\"" RESET " : Show users on this machine\n");
+    printf(YELLOW "   \"chat\" " RESET " : Start a chat with a user\n");
+    printf(YELLOW "   \"group\"" RESET " : Start a group chat\n");
+    printf(YELLOW "   \"exit\" " RESET " : Exit\n");
     return;
+}
+
+void printUsers(void)
+{
+	printf("USERS:\n");
+}
+
+void startChat()
+{
+	char name[MAXLINE]; // Name of user
+	printf("Enter Name/ID: ");
+	fflush(stdout);
+	fgets (name, MAXLINE, stdin); // Read command line input
+
+	// if (!lookup(name)) {
+	// 	printf("User Not Found\n"); 
+	// }
+	
+	// else {
+	
+	// 	printf("Starting Chat\n")
+	
+	/*  Code for chatting */
+	
+	// }
+
+}
+void startGroup()
+{
+
+	printf("Group Chat Started?\n");
+}
+
+void printHelpInfo()
+{
+	printf("Chat stuff here bro\n");
 }
