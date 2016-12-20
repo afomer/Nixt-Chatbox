@@ -1,1 +1,1 @@
-# Nixt-Chatbox
+# NIXT-Chatbox
