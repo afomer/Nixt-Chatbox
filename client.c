@@ -446,7 +446,7 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client)
 	   }
 	  ////
 
-	  printf(">>");
+	  printf(">> ");
 	  fgets (user_text_buf, MAXLINE, stdin); // Read command line input
 
 	}
