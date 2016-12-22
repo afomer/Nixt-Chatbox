@@ -43,6 +43,7 @@ void printHelpInfo(); // prints help info: add later
 void ChatRequest(int serverfd, rio_t rio_serverfd, char *name, char *other_user); // Asking the user about a chat request
 void ChatState(int serverfd, rio_t rio_serverfd, char *name);
 void PrintCurrentTime();
+void reading_chat(void *serverfd_ptr);
 
 // SSH Timezone Functions
 struct string_holder;
@@ -347,9 +348,6 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 	char buf[MAXLINE];
 	char *other_user_response = calloc(sizeof(char), MAXLINE);
     
-    int i;
-	
-	
     // tell client about the user that want to chat with him/her
 	printf("%s Want to chat, do you want to ? [Y/N] ", other_user);
 	
@@ -389,10 +387,12 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 void ChatState(int serverfd, rio_t rio_serverfd, char *client)
 {
     char user_text_buf[MAXLINE];
-    char server_buf[MAXLINE];
-    int server_buf_not_empty;
 
-    printf("Joined Chat\n");
+    printf("Joined The Chat...\n");
+
+    pthread_t tid;
+
+    pthread_create(&tid, NULL, (void *)reading_chat, (void *)(long *)(&serverfd));
 
     printf(">> ");
         
@@ -401,28 +401,45 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client)
 	while (strcmp("exit\n", user_text_buf))
 	{ 
 	  rio_writen(serverfd, user_text_buf, MAXLINE);
-	  
-
-	  /// Recieving Other participants Chat, if there is
-	  ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
-        
-      if ( server_buf_not_empty )
-       {
-	       read(serverfd, server_buf, MAXLINE);
-	       printf("other_user: %s\n", server_buf );
-	   }
-	  ////
-
-	  printf(">>");
+	  printf(">> ");
 	  fgets (user_text_buf, MAXLINE, stdin); // Read command line input
+	  printf(">> ");
 
 	}
 
+	// Terminate the reading thread
+    pthread_cancel(tid);
+
 	rio_writen(serverfd,"exit",strlen("exit")+1);
+
+	printf("exited chat\n");
 
 	return;
 }
 
+void reading_chat(void *serverfd_ptr)
+{
+    int serverfd = *(int *)(long *)(serverfd_ptr);
+    char server_buf[MAXLINE];
+    int server_buf_not_empty;
+	
+	while (1)
+	{ 
+	  
+	  /// Recieving Other participants Chat, if there is
+	  ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
+        
+      if ( server_buf_not_empty )
+       {   
+	       read(serverfd, server_buf, MAXLINE);
+	       printf("|%s >>", server_buf );
+
+	   }
+
+	}
+
+	return;
+}
 
 void PrintCurrentTime()
 {
