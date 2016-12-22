@@ -78,13 +78,14 @@ int main(int argc, char **argv)
       fprintf(stderr, "usage: %s <server> <port>\n", argv[0]);
       exit(1);
     }
+
 	// Variables to get local time
 	time_t rawtime;
 	struct tm * timeinfo;
 
 	// Variables to get original time info
 	char* timezone = NULL;
-	char buffer[1000];
+	char timeZoneString[MAXLINE];
 	FILE *pipe;
 	int len; 
 	/////////////////////////////////
@@ -99,7 +100,6 @@ int main(int argc, char **argv)
             usage();
         }
     }
-
 
     // GET IP ADDRESS AND SET SSH BOOL IF USER HAS SSH'ed
 	IPname = getenv("SSH_CLIENT"); 
@@ -254,12 +254,12 @@ int main(int argc, char **argv)
 					exit(1);
 				} 
 				// Ask bash shell for the ssh client time based on timezone:
-				fgets(buffer, sizeof(buffer), pipe);
-				len = strlen(buffer);
-				buffer[len-1] = '\0'; 
+				fgets(timeZoneString, sizeof(timeZoneString), pipe);
+				len = strlen(timeZoneString);
+				timeZoneString[len-1] = '\0'; 
 
 				// Split string to get time only.
-				timeString = strtok(buffer," ");
+				timeString = strtok(timeZoneString," ");
 				timeString = strtok(NULL," ");
 				timeString = strtok(NULL," ");
 				timeString = strtok(NULL," ");
