@@ -1,21 +1,25 @@
-# the compiler: gcc for C program
+#
+# Makefile for Unix-Chatbox 
+#
 CC = gcc
+COPT = -O3
+CFLAGS = -g -Wall
+LDFLAGS = -lpthread
 
-# compiler flags:
-#  -g    adds debugging information to the executable file
-#  -Wall turns on most, but not all, compiler warnings
-CFLAGS  = -g -Wall
+all: client server
 
-#Name of C File
-TARGET = client
+util.o: util.c util.h
+	$(CC) $(CFLAGS) -c util.c
 
-#Name of executable you want to create
-FINALBUILD = chat
+client.o: client.c util.h
+	$(CC) $(CFLAGS) -c client.c
 
-all: $(TARGET)
+server.o: server.c util.h
+	$(CC) $(CFLAGS) -c server.c
 
-$(TARGET): $(TARGET).c
-	$(CC) $(CFLAGS) -o $(FINALBUILD) $(TARGET).c
+client: client.o util.o
+
+server: server.o util.o
 
 clean:
-	$(RM) $(FINALBUILD)
+	rm -f *~ *.o client core *.tar *.zip *.gzip *.bzip *.gz
