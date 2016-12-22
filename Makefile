@@ -4,7 +4,7 @@
 CC = gcc
 COPT = -O3
 CFLAGS = -g -Wall
-LDFLAGS = -lpthread
+LDFLAGS = -pthread
 
 all: client server
 
@@ -12,10 +12,10 @@ util.o: util.c util.h
 	$(CC) $(CFLAGS) -c util.c
 
 client.o: client.c util.h
-	$(CC) $(CFLAGS) -c client.c
+	$(CC) $(CFLAGS) -c client.c 
 
 server.o: server.c util.h
-	$(CC) $(CFLAGS) -c server.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -c server.c 
 
 client: client.o util.o
 
