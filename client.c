@@ -63,7 +63,7 @@ int main(int argc, char **argv)
     char *name2 = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, name2);
     
-    //@@@@@delete after testing@@@@//
+    /////delete after testing////
     // appeding a random number to ur name
     time_t t;
     char str[50];
@@ -72,20 +72,19 @@ int main(int argc, char **argv)
    srand((unsigned) time(&t));
    sprintf(str, "%d", (rand() % 500));
    strcat(name,str);
-   //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@//
+   /////
     
     if (argc != 3 || argv[1] == NULL || argv[2] == NULL) {
       fprintf(stderr, "usage: %s <server> <port>\n", argv[0]);
       exit(1);
     }
-
 	// Variables to get local time
 	time_t rawtime;
 	struct tm * timeinfo;
 
 	// Variables to get original time info
 	char* timezone = NULL;
-	char timeZoneString[MAXLINE];
+	char buffer[1000];
 	FILE *pipe;
 	int len; 
 	/////////////////////////////////
@@ -100,6 +99,7 @@ int main(int argc, char **argv)
             usage();
         }
     }
+
 
     // GET IP ADDRESS AND SET SSH BOOL IF USER HAS SSH'ed
 	IPname = getenv("SSH_CLIENT"); 
@@ -146,7 +146,6 @@ int main(int argc, char **argv)
     printf("Created By Abubaker Omer and Julian Sam \n");
     printf("Type " YELLOW "\"c\"" RESET " to see possible commands\n");
     
-    // sleep for 500 milliseconds for the server to authenticate the user
     usleep(500);
 
 	while (1) {
@@ -225,57 +224,19 @@ int main(int argc, char **argv)
 			printUsers(serverfd, buf);
 		else if (!strcmp("whoami\n",buf) )
 			printf("%s\n", name);
-		else
-		{
-						// Print Current Time
-			if (SSH == false)
-			{
-				// IF NOT SSH'ed, then just print local system time:
-				time ( &rawtime );
-				timeinfo = localtime ( &rawtime );
-				splitString  = asctime(timeinfo);
+		else {
 
-				// Split string to get just the time.
-				timeString = strtok(splitString," ");
-				timeString = strtok(NULL," ");
-				timeString = strtok(NULL," ");
-				timeString = strtok(NULL," ");
-			}
-			else
-			{
-				// Initialize variables to get original time
-				char bash_cmd[256] = "TZ=";
-				strcat(bash_cmd,timezone);
-				strcat(bash_cmd," date");
-				// Open pipe to bash to retrieve time.
-				pipe = popen(bash_cmd, "r");
-				if (NULL == pipe) {
-					perror("pipe");
-					exit(1);
-				} 
-				// Ask bash shell for the ssh client time based on timezone:
-				fgets(timeZoneString, sizeof(timeZoneString), pipe);
-				len = strlen(timeZoneString);
-				timeZoneString[len-1] = '\0'; 
 
-				// Split string to get time only.
-				timeString = strtok(timeZoneString," ");
-				timeString = strtok(NULL," ");
-				timeString = strtok(NULL," ");
-				timeString = strtok(NULL," ");
-				pclose(pipe);
-			}
-			printf(YELLOW"[%s] " GREEN "%s: " RESET "%s", timeString, name, buf); 
-								// Print back given input (echo it)
-			fflush(stdout); // Flush to screen
 
 
 		}
         
+
+      //  read(&rio_serverfd, server_buf, MAXLINE);
+
 	}
         
-    // Should never reach here
-    exit(0);
+		
 		
 }
 
@@ -349,7 +310,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     // join a chat a 1-to-1 chat, joinchat <other user name>
     strcat(strcat(JoinChat_instruct,"joinchat 1to1 "), other_user);
         
-    printf("jis: %s\n", JoinChat_instruct );
+    sleep(1);
     
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, JoinChat_instruct, strlen(JoinChat_instruct) + 1);
@@ -383,7 +344,11 @@ void printHelpInfo()
 
 void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 {   
-	char buf[MAXLINE], other_user_response[MAXLINE];
+	char buf[MAXLINE];
+	char *other_user_response = calloc(sizeof(char), MAXLINE);
+    
+    int i;
+	
 	
     // tell client about the user that want to chat with him/her
 	printf("%s Want to chat, do you want to ? [Y/N] ", other_user);
@@ -414,6 +379,8 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 		rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
 		ChatState(serverfd, rio_serverfd, user);
 	}
+
+	free(other_user_response);
 
 	return;
 
@@ -446,7 +413,7 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client)
 	   }
 	  ////
 
-	  printf(">> ");
+	  printf(">>");
 	  fgets (user_text_buf, MAXLINE, stdin); // Read command line input
 
 	}
