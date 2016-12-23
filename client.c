@@ -40,20 +40,10 @@ void printUsers(int serverfd, char *buf); // Show all users
 void startChat(int serverfd, rio_t rio_serverfd, char *name);
 void startGroup();
 void printHelpInfo(); // prints help info: add later
-void ChatRequest(int serverfd, char *name, char *other_user); // Asking the user about a chat request
-void ChatState(int serverfd, char *name, char *other_user);
+void ChatRequest(int serverfd, rio_t rio_serverfd, char *name, char *other_user); // Asking the user about a chat request
+void ChatState(int serverfd, rio_t rio_serverfd, char *name, char *other_user);
 void PrintCurrentTime();
-void ReadingChatFromServer();
-void HandleServerRequest();
-
-// Global Variable for Server File Descriptor
-int serverfd;
-
-/* Semaphore Lock for handling server requests, that need client's answer */
-sem_t handle_server_request;
-int server_handled;
-char name[MAXLINE];
-
+void ReadingChatFromServer(void *serverfd_ptr);
 
 // SSH Timezone Functions
 struct string_holder;
@@ -70,12 +60,10 @@ int main(int argc, char **argv)
 	char* timeString = NULL;
 	char* splitString = NULL;
 	char* IPname;
+    char name[MAXLINE];
     char *name2 = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, name2);
     
-    // initializing the semaphore. Read before you get user input
-    sem_init(&handle_server_request, 0, 1);
-
     /////delete after testing////
     // appeding a random number to ur name
     time_t t;
@@ -132,7 +120,7 @@ int main(int argc, char **argv)
 
 	// Connect to the NIXT server the client requested 
 	// (make sure they are not corrupted)
-    serverfd = open_clientfd(argv[1], argv[2]);
+    int serverfd = open_clientfd(argv[1], argv[2]);
 
     // if the domain couldn't be identinfied, 
     // write bad GET Request to the user
@@ -152,19 +140,12 @@ int main(int argc, char **argv)
     
     rio_t rio_serverfd;
 	int server_buf_not_empty;
-	server_handled = 0;
+
 
     printf(GREEN "Welcome to the NIXT ChatBox, " RESET);
     printf(CYAN "%s \n" RESET, name);
     printf("Created By Abubaker Omer and Julian Sam \n");
     printf("Type " YELLOW "\"c\"" RESET " to see possible commands\n");
-    
-
-    // Recieving requests and messages from the server in a different thread
-    /* Spawning a thread to read messages directly from the server and prints them
-       to the client's screen directly as they are recieved */
-    pthread_t tid;
-    pthread_create(&tid, NULL, (void *)HandleServerRequest, NULL);
     
     usleep(500);
 
@@ -175,45 +156,87 @@ int main(int argc, char **argv)
 		    exit(0);
 		}
         
-        // P(handle_server_request)
-        // if it's a server request it will handled by HandleServerRequest thread
-        sem_wait(&handle_server_request);
+        /******* reading data from the server *******/
 
-		printf("prompt >> "); // Type Prompt Symbol 
+        ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
+        
+        if ( server_buf_not_empty )
+        {
+	        read(serverfd, server_buf, MAXLINE);
+
+	        sscanf(server_buf,"%s %s %s", command, arg1, arg2);
+			
+            if (!strcmp(command, "chatans"))
+	        {
+
+	           // Asking the user about a chat request
+	           ChatRequest(serverfd, rio_serverfd, name, arg1);
+
+	        }
+	        else if (!strcmp(command,"quit"))
+	        {
+	        	printf("The Server is Shutting Down ...\n" );
+	        	close(serverfd);
+	        }
+	        else if (!strcmp(command,"logged"))
+	        {
+	        	char *logged_in = "This user is already logged in NIXT Chat Server";
+                printf("%s \n", logged_in );
+                close(serverfd);
+                return 0;
+	        }
+
+        }
+
+        /********************************************/
+
+        
+
+		
+		printf(">> "); // Type Prompt Symbol 
 		
 		fflush(stdout); // Flush to screen
 
+
 		fgets (buf, MAXLINE, stdin); // Read command line input
                 
+
+        
 		if (strlen(buf) == 2 && buf[0] == 'c') // Show commands
 			showCommands();
 
-		else if ((!strcmp("exit\n",buf) 
+		else if (!strcmp("exit\n",buf) 
 			     || !strcmp("quit\n",buf)
-				 || !strcmp("q\n",buf)) )// Exit client
+				 || !strcmp("q\n",buf) )// Exit client
 		{
 			if (SSH == true) // Free malloc'ed strings before exiting.
 			{
-			}
-			
-			// Terminating the reading thread
-            pthread_cancel(tid);    
+			}	
 			exit(0);
 		}
 
 		else if (!strcmp("chat\n",buf)) 
 			startChat(serverfd, rio_serverfd, name);
 
-		else if ( !strcmp("group\n",buf)) 
+		else if (!strcmp("group\n",buf)) 
 			startGroup();
 
-		else if ( !strcmp("users\n",buf) )
+		else if (!strcmp("users\n",buf) )
 			printUsers(serverfd, buf);
 		else if (!strcmp("whoami\n",buf) )
-			printf("%s\n", name);        
+			printf("%s\n", name);
+		else {
+
+
+
+
+		}
+        
+
+      //  read(&rio_serverfd, server_buf, MAXLINE);
 
 	}
-
+        
 		
 		
 }
@@ -293,7 +316,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, JoinChat_instruct, strlen(JoinChat_instruct) + 1);
 
-    ChatState(serverfd, name, other_user);
+    ChatState(serverfd, rio_serverfd, name, other_user);
 
 
 	// if (!lookup(name)) {
@@ -320,7 +343,7 @@ void printHelpInfo()
 	printf("Chat stuff here bro\n");
 }
 
-void ChatRequest(int serverfd, char *user, char *other_user)
+void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 {   
 	char buf[MAXLINE];
 	char *other_user_response = calloc(sizeof(char), MAXLINE);
@@ -330,11 +353,7 @@ void ChatRequest(int serverfd, char *user, char *other_user)
 	
 	fflush(stdout);
 	
-	printf("GETTING it1 \n");
-
 	fgets (buf, MAXLINE, stdin); // Read command line input
-    
-    printf("GETTING it \n");
 
 	while(strcmp(buf,"n\n") && strcmp(buf,"N\n") 
 		&& strcmp(buf,"Y\n") && strcmp(buf,"y\n"))
@@ -356,10 +375,9 @@ void ChatRequest(int serverfd, char *user, char *other_user)
 		// chatansyes , answering yes for a chat request (Chat Answer yes)
 		strcat(strcat(other_user_response, "chatansyes "), other_user);
 		rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
-		ChatState(serverfd, user, other_user);
+		ChatState(serverfd, rio_serverfd, user, other_user);
 	}
-    
-    printf("SENT\n");
+
 	free(other_user_response);
 
 	return;
@@ -375,7 +393,7 @@ void ChatRequest(int serverfd, char *user, char *other_user)
  * thread and then sent to every user in the chat                          
  * * * * * * * * * * * * * * * * * * * * * *
  */
-void ChatState(int serverfd, char *client, char *other_user)
+void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 {
     char user_text_buf[MAXLINE];
 
@@ -411,8 +429,9 @@ void ChatState(int serverfd, char *client, char *other_user)
 
 // NOTICE: THIS IS INTENDED TO BE AN INFINITE LOOP,
 // AND NEED TO BE TERMINARTED BY THE MAIN THREAD
-void ReadingChatFromServer()
+void ReadingChatFromServer(void *serverfd_ptr)
 {
+    int serverfd = *(int *)(long *)(serverfd_ptr);
     char server_buf[MAXLINE];
     int server_buf_not_empty;
 	
@@ -432,54 +451,6 @@ void ReadingChatFromServer()
 	}
 
 	return;
-}
-
-void HandleServerRequest()
-{   
-    char command[MAXLINE],arg1[MAXLINE], arg2[MAXLINE];
-	char server_buf[MAXLINE];
-	int server_buf_not_empty = 0;
-    
-    while (true)
-    {
-		ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
-
-		if ( server_buf_not_empty )
-		{   
-		    read(serverfd, server_buf, MAXLINE);
-
-		    sscanf(server_buf,"%s %s %s", command, arg1, arg2);
-			
-		    if (!strcmp(command, "chatans"))
-		    {
-
-		       // Asking the user about a chat request
-		       ChatRequest(serverfd, name, arg1);
-
-		    }
-		    else if (!strcmp(command,"quit"))
-		    {
-		    	printf("The Server is Shutting Down ...\n" );
-		    	close(serverfd);
-		    	exit(0);
-		    }
-		    else if (!strcmp(command,"logged"))
-		    {
-		    	char *logged_in = "This user is already logged in NIXT Chat Server";
-		        printf("%s \n", logged_in );
-		        close(serverfd);
-		        exit(0);
-		    }
-
-	        sem_post(&handle_server_request);
-
-		}
-	
-	  //printf("resume..\n");
-	
-	}
-	
-
 }
 
 void PrintCurrentTime()
