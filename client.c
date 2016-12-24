@@ -429,6 +429,8 @@ void ReadingChatFromServer(void *serverfd_ptr)
 
         rio_readlineb(serverfd, server_buf, MAXLINE);
         printf("Server sends me: %s", server_buf);
+            read(serverfd, server_buf, MAXLINE);
+            printf("Server sends me: %s", server_buf);
 
 
             // printf(">> ");
