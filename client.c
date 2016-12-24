@@ -393,13 +393,12 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
         
         // <my_name> <space> <msg>
         meta_info_buf[0] = 0; 
-        strcpy(meta_info_buf,client);
-        strcat(meta_info_buf," ");
-        strcat(meta_info_buf,user_text_buf);
+        sprintf(meta_info_buf,YELLOW"[%s] " GREEN "%s: " RESET "%s\n", "date", client, user_text_buf); 
 
+        // strcat(meta_info_buf,client);
+        // strcat(meta_info_buf," ");
+        // strcat(meta_info_buf,user_text_buf);
         rio_writen(serverfd, meta_info_buf, MAXLINE);
-
-        printf(YELLOW"[%s] " GREEN "%s: " RESET "%s\n", "date", client, user_text_buf); 
     }
 
     // Terminating the reading thread
@@ -431,8 +430,7 @@ void ReadingChatFromServer(void *serverfd_ptr)
         {   
 
             read(serverfd, server_buf, MAXLINE);
-            printf("Server sends me: %s\n", server_buf);
-
+            printf("%s", server_buf);
 
             // printf(">> ");
             // friend_name = strtok(server_buf," ");
