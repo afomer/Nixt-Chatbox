@@ -431,7 +431,7 @@ void ReadingChatFromServer(void *serverfd_ptr)
         {   
 
             read(serverfd, server_buf, MAXLINE);
-            printf("Server sends me: %s\n", server_buf);
+            printf("Server sends me: %s", server_buf);
 
 
             // printf(">> ");
