@@ -11,7 +11,6 @@
 | | | | '_ \| \ \/ / | |   | '_ \ / _` | __| | ___ \/ _ \ \/ /
 | |_| | | | | |>  <  | \__/\ | | | (_| | |_  | |_/ / (_) >  < 
 \___/|_| |_|_/_/\_\  \____/_| |_|\__,_|\__| \____/ \___/_/\_\
-
                  _____  _ _            _   
                 /  __  \ (_)          | |  
                 | /  \ / |_  ___ _ __ | |_ 
@@ -84,7 +83,7 @@ int main(int argc, char **argv)
     char* splitString = NULL;
     char name[MAXLINE];
     
-
+    name[0] = '\0'; 
     char *envName = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, envName);
 
@@ -272,6 +271,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     fflush(stdout);
     fgets (other_user, MAXLINE, stdin); // Read command line input
     
+    chatrqst_instr[0] = '\0'; 
     // Sending chat requests is like chatrqst <who you want to chat with>
     strcat(strcat(chatrqst_instr,"chatrqst "), other_user);
         
@@ -298,6 +298,8 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     // send to the server to be in a ChatState
     char JoinChat_instruct[MAXLINE];
     
+    JoinChat_instruct[0] = '\0'; 
+
     /* Telling your thread in the server-side to be in a ChatState*/
     // join a chat a 1-to-1 chat, joinchat <other user name>
     strcat(strcat(JoinChat_instruct,"joinchat 1to1 "), other_user);
@@ -328,10 +330,13 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
     while(strcmp(buf,"n\n") && strcmp(buf,"N\n") 
         && strcmp(buf,"Y\n") && strcmp(buf,"y\n"))
     {
+       buf[0] = '\0'; 
        printf("Please answer with y or n. ");
        fflush(stdout);
        fgets(buf, MAXLINE, stdin); // Read command line input
     }
+    
+    other_user_response[0] = '\0'; 
 
     if (!strcmp(buf,"n\n") || !strcmp(buf,"N\n"))
     {   
@@ -385,7 +390,9 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
         printf(">> ");
         fflush(stdout);
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
-
+        
+        // <my_name> <space> <msg>
+        meta_info_buf[0] = '\0'; 
         strcpy(meta_info_buf,client);
         strcat(meta_info_buf," ");
         strcat(meta_info_buf,user_text_buf);
@@ -522,4 +529,3 @@ void PrintCurrentTime()
 
 
 }
-

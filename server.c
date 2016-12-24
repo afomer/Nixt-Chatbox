@@ -19,7 +19,11 @@
  *   the array of online users. After that commands are waited from the client* 
  *   to either send, recieve msgs or join group chats.                        *
  *  
+<<<<<<< HEAD
+ *  UPCOMING:                                                                 *
+=======
  *  UPCOMING...:                                                                 *
+>>>>>>> 35e482e2976776e80ff905c64b69286939c00c6a
  *  ** Assigning usernames **                                                 *
  *                                                                            *                                       *
  *                                                                            *
@@ -121,7 +125,13 @@ int main(int argc, char **argv)
        
     /* Setting a socket to listen to clients' connection requests */
     listenfd = open_listenfd(argv[1]);
-    
+
+    if (listenfd < 1)
+    {
+      printf("socket failure\n");
+      exit(1);
+    }
+
     /* Allocating arrays for online users and active chat sessions */
     
     chat_session_arr = calloc(sizeof(struct chat_session), MAX_SESSIONS);
@@ -330,11 +340,6 @@ void execute_instrcution(char *client, int client_fd,
        printf("%s joining with %s\n",client, arg1);
        chat_session_t new_chat = add_chat(client, arg1, false);
        
-       if (new_chat == NULL)
-          printf("WTF\n");
-
-       printf("created %s \n", new_chat->session_name );
-
        rio_writen(otherclient_fd, chat_request_answer, 
                                strlen(chat_request_answer) + 1);       
 
@@ -595,7 +600,8 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
     // until the user say exit 
     while ( strcmp(buf ,"exit\n") && strcmp(buf ,"exit") )
     {   
-  
+        // Stick the client name at the back every msg, <name> <msg>
+      
         /// Recieving Other participants Chat, if there is
         ioctl(client_fd, SIOCINQ, &client_buf_not_empty);
         
@@ -603,7 +609,11 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
         {
           read(client_fd, buf, MAXLINE);
           send_to_chat_session(chat_session, buf);
+
+          printf(">> %s\n", buf );
+
           printf(">>>> %s\n", buf );
+
         }
         
 
@@ -628,7 +638,7 @@ void leave_chat_session(chat_session_t chat_session, int client_fd)
   {
       if ( chat_session->users[i]->client_fd == client_fd )
       {
-        free(chat_session->users[i]->username);
+        //free(chat_session->users[i]->username);
         chat_session->users[i] = NULL;
       }
   }
@@ -653,7 +663,7 @@ void send_to_chat_session(chat_session_t chat_session, char *text)
         {
           user_fd = chat_session->users[i]->client_fd;
           printf("%d, ", user_fd );              
-          rio_writen(user_fd, text, text_len_p1);
+          write(user_fd, text, text_len_p1);
         }
       }
 
