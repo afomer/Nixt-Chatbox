@@ -431,13 +431,10 @@ void ReadingChatFromServer(void *serverfd_ptr)
         {   
 
             read(serverfd, server_buf, MAXLINE);
+            printf("Server sends me: %s\n", server_buf);
 
-            if (!strcmp(server_buf,"\n"))
-                printf("YUP newlineonly\n");
-            
-            printf("\nServer sends me: %s\n", server_buf);
-            printf(">> ");
-            fflush(stdout);
+
+            // printf(">> ");
             // friend_name = strtok(server_buf," ");
             // if (strcmp(friend_name,myName))
             // {
