@@ -420,18 +420,15 @@ void ReadingChatFromServer(void *serverfd_ptr)
 {
     int serverfd = *(int *)(long *)(serverfd_ptr);
     char server_buf[MAXLINE];
+    rio_t serverfd_rio;
+    rio_readinitb( serverfd_rio, serverfd); 
     int server_buf_not_empty;
     // char * friend_name ;
     while (true)
     { 
-        /// Recieving Other participants Chat, if there is
-        ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
-        
-        if ( server_buf_not_empty )
-        {   
 
-            read(serverfd, server_buf, MAXLINE);
-            printf("Server sends me: %s\n", server_buf);
+        rio_readlineb(serverfd, server_buf, MAXLINE);
+        printf("Server sends me: %s", server_buf);
 
 
             // printf(">> ");
@@ -447,7 +444,7 @@ void ReadingChatFromServer(void *serverfd_ptr)
             // {
             //     // printf("recieved and not showing (aka success?!?)\n");
             // }
-        }
+
     }
 
     return;
