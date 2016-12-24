@@ -42,6 +42,8 @@
 #define CYAN    "\x1b[36m"
 #define RESET   "\x1b[0m" // Reset color code
 
+char* color_array[5] = {RED,GREEN,BLUE,CYAN,MAGENTA};
+
 bool useTimeZone = false;
 char myName[MAXLINE];
 
@@ -374,6 +376,12 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 {
     char user_text_buf[MAXLINE];
     char meta_info_buf[MAXLINE];
+    char* myColor = color_array[rand()%5];
+
+    time_t rawtime;
+    struct tm * timeinfo;
+    char* timeString;
+    char* splitString;
 
     strcpy(user_text_buf,"");
 
@@ -393,11 +401,18 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
         
         // <my_name> <space> <msg>
         meta_info_buf[0] = 0; 
-        sprintf(meta_info_buf,YELLOW"[%s] " GREEN "%s: " RESET "%s\n", "date", client, user_text_buf); 
+        time ( &rawtime );
+        timeinfo = localtime ( &rawtime );
+        splitString  = asctime(timeinfo);
 
-        // strcat(meta_info_buf,client);
-        // strcat(meta_info_buf," ");
-        // strcat(meta_info_buf,user_text_buf);
+        // Split string to get just the time.
+        timeString = strtok(splitString," ");
+        timeString = strtok(NULL," ");
+        timeString = strtok(NULL," ");
+        timeString = strtok(NULL," ");
+
+        sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", timeString, myColor, client, user_text_buf); 
+
         rio_writen(serverfd, meta_info_buf, MAXLINE);
     }
 
@@ -414,13 +429,13 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 
 
 // NOTICE: THIS IS INTENDED TO BE AN INFINITE LOOP,
-// AND NEED TO BE TERMINARTED BY THE MAIN THREAD
+// AND NEED TO BE TERMINARTED BY THE MAIN thread
 void ReadingChatFromServer(void *serverfd_ptr)
 {
     int serverfd = *(int *)(long *)(serverfd_ptr);
     char server_buf[MAXLINE];
     int server_buf_not_empty;
-    // char * friend_name ;
+    
     while (true)
     { 
         /// Recieving Other participants Chat, if there is
@@ -428,23 +443,10 @@ void ReadingChatFromServer(void *serverfd_ptr)
         
         if ( server_buf_not_empty )
         {   
-
             read(serverfd, server_buf, MAXLINE);
-            printf("%s", server_buf);
-
-            // printf(">> ");
-            // friend_name = strtok(server_buf," ");
-            // if (strcmp(friend_name,myName))
-            // {
-            //      printf(YELLOW"[%s] " GREEN "%s: " RESET "%s\n", "date", friend_name, server_buf); 
-            //      printf("Message recieved from Server: %s\n", server_buf );
-            //      printf(">>");
-            //      fflush(stdout);
-            // }
-            // else
-            // {
-            //     // printf("recieved and not showing (aka success?!?)\n");
-            // }
+            printf("\n%s", server_buf);
+            printf(">> ");
+            fflush(stdout);
         }
     }
 
