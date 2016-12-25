@@ -19,11 +19,8 @@
  *   the array of online users. After that commands are waited from the client* 
  *   to either send, recieve msgs or join group chats.                        *
  *  
-<<<<<<< HEAD
- *  UPCOMING:                                                                 *
-=======
- *  UPCOMING...:                                                                 *
->>>>>>> 35e482e2976776e80ff905c64b69286939c00c6a
+ *  UPCOMING...                                                              *
+ *
  *  ** Assigning usernames **                                                 *
  *                                                                            *                                       *
  *                                                                            *
@@ -48,7 +45,6 @@ struct instruct
 struct user
 {   
     char *username;
-    //TOBE ADDED chat_session_t *chat_session[10];
     int client_fd;
     bool chatting;
 };
@@ -74,6 +70,9 @@ struct chat_session **chat_session_arr;
 
 // The Array of Online Users
 struct user **online_users_arr;
+
+/* mutex for reading/writing */
+sem_t read_write_mutex;
 
 /* Client functions */
 
@@ -137,6 +136,8 @@ int main(int argc, char **argv)
     chat_session_arr = calloc(sizeof(struct chat_session), MAX_SESSIONS);
 
     online_users_arr = calloc(sizeof(struct user), MAX_ONLINE);
+
+    sem_init(&read_write_mutex, 0, 1);
 
 
     /* Listen to client connection requests and spawn threads for each client */
@@ -383,11 +384,14 @@ void execute_instrcution(char *client, int client_fd,
       int i;
       for (i = 0; i < MAX_ONLINE; i++)
         {
+          sem_wait(&read_write_mutex);
           if ( online_users_arr[i] != NULL )
           { 
+            users[0] = 0;
             strcat(strcat(users, online_users_arr[i]->username), " \n");
             printf("%s\n", online_users_arr[i]->username);
           }
+          sem_post(&read_write_mutex);
         }
 
         rio_writen(client_fd, users, sizeof(users));
@@ -460,6 +464,7 @@ void online_user_add(char *user, int client_fd)
     {
                 
         // If an empty cache slot is found update it fields
+        sem_wait(&read_write_mutex);
         if ( online_users_arr[i] == NULL)
         {   
     
@@ -470,9 +475,13 @@ void online_user_add(char *user, int client_fd)
           online_users_arr[i]->client_fd = client_fd;
 
           online_users_arr[i]->chatting = false;
-
+          
+          sem_post(&read_write_mutex);
+          
           return;       
         }
+
+        sem_post(&read_write_mutex);
         
 
     }
@@ -497,9 +506,14 @@ bool is_user_online(char *user)
     int i;
 
     for (i = 0; i < MAX_ONLINE; i++)
-    {
+    {   
+        sem_wait(&read_write_mutex);
         if ( online_users_arr[i] != NULL && !strcmp(user, online_users_arr[i]->username))
-            return true;
+        {
+          sem_post(&read_write_mutex);
+          return true;
+        }
+        sem_post(&read_write_mutex);
     }
 
     return false;
@@ -508,13 +522,22 @@ bool is_user_online(char *user)
 bool empty_chat_session(chat_session_t chat_session)
 {
     int i;
-
+    
+    sem_wait(&read_write_mutex);
     user_t *tmp_user = chat_session->users;
+    sem_post(&read_write_mutex);
 
     for (i = 0; i < MAX_ONLINE; i++)
-    {
+    {   
+        sem_wait(&read_write_mutex);
+        
         if ( tmp_user[i] != NULL)
-            return true;
+        {
+          sem_post(&read_write_mutex);
+          return true;
+        }
+        
+        sem_post(&read_write_mutex);
     }
     
     return false;
@@ -554,6 +577,7 @@ void start_chat(char *client, char *otherclient, rio_t rio_client_fd)
  * a chat session                          *
  * * * * * * * * * * * * * * * * * * * * * *
  */
+// REQUIRES: valid(client_fd) == true
 void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_client_fd)
 {
     //TODO: add the client to the chat_session users
@@ -564,29 +588,31 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
     char *buf = calloc(sizeof(char), MAXLINE);
 
     user_t user = get_user(NULL, client_fd);
-
+    
+    // Setting user to be in a chatting state
+    sem_wait(&read_write_mutex);
     user->chatting = true;
+    sem_post(&read_write_mutex);
 
-    user_t tmp_user;
-
-   int i;
+    int i;
    
    // Add the person to the chat-session-users
    for (i = 0; i < MAX_ONLINE; i++)
    {
-      
-      tmp_user = chat_session->users[i];
 
-      if ( tmp_user == NULL)
+      sem_wait(&read_write_mutex);
+      if ( chat_session->users[i] == NULL)
        {
          chat_session->users[i] = malloc(sizeof(struct user));
          chat_session->users[i]->username = malloc(MAXLINE);
 
          chat_session->users[i]->username = user->username;
          chat_session->users[i]->client_fd = client_fd;
-
+         sem_post(&read_write_mutex);
          break; // sorry Prof. Saquib
-       } 
+       }
+
+      sem_post(&read_write_mutex);
    }
     
     /* Be in a ChatState */
@@ -621,13 +647,13 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
 
     leave_chat_session(chat_session, client_fd);
     printf("%s left chat\n", user->username );
-    tmp_user->chatting = false;
+
 }
 
 /*
  * * * * * * * * * * * * * * * * * * * * * *
  * leave_chat_session:                     *
- * Leave a a chatting session              *
+ * Leave a chatting session                *
  * * * * * * * * * * * * * * * * * * * * * *
  */
 void leave_chat_session(chat_session_t chat_session, int client_fd)
@@ -635,12 +661,17 @@ void leave_chat_session(chat_session_t chat_session, int client_fd)
   int i;
 
   for (i = 0; i < MAX_ONLINE; i++)
-  {
-      if ( chat_session->users[i]->client_fd == client_fd )
+  {   
+      sem_wait(&read_write_mutex);
+      if ( chat_session->users[i] != NULL 
+           && chat_session->users[i]->client_fd == client_fd )
       {
         //free(chat_session->users[i]->username);
         chat_session->users[i] = NULL;
+        chat_session->users[i]->chatting = false;
+
       }
+      sem_post(&read_write_mutex);
   }
 }
 
@@ -657,14 +688,18 @@ void send_to_chat_session(chat_session_t chat_session, char *text)
     
     int user_fd, text_len_p1 = strlen(text) + 1; 
 
+    printf("SEND: %s\n", text );
+
     for ( i = 0; i < MAX_ONLINE; i++)
-      {
+      { 
+        sem_wait(&read_write_mutex);
         if ( chat_session->users[i] != NULL )
         {
           user_fd = chat_session->users[i]->client_fd;
           printf("%d, ", user_fd );              
           write(user_fd, text, text_len_p1);
         }
+        sem_post(&read_write_mutex);
       }
 
     printf("\n");
@@ -684,17 +719,29 @@ void send_to_chat_session(chat_session_t chat_session, char *text)
 chat_session_t active_1to1_chat(char *client, char *otherclient)
 {  
    chat_session_t tmp_chat;
+   user_t *chat_users;
 
    int i;
    
    for (i = 0; i < MAX_SESSIONS; i++)
-   {
+   {    
+        sem_wait(&read_write_mutex);
         tmp_chat = chat_session_arr[i];
+        chat_users = tmp_chat->users;
+        sem_post(&read_write_mutex);
 
        if ( tmp_chat != NULL
-         && tmp_chat->group_chat == false
-         && both_in_chat(client, otherclient, tmp_chat->users))
-        return tmp_chat;
+         && both_in_chat(client, otherclient, chat_users))
+        {
+          sem_wait(&read_write_mutex);
+
+          if ( tmp_chat->group_chat == false)
+          {
+            sem_post(&read_write_mutex);
+            return tmp_chat;
+          }
+          sem_post(&read_write_mutex);
+        }
    }
 
    return NULL;
@@ -714,12 +761,19 @@ chat_session_t chat_created(char *client, char *otherclient)
    int i;
    
    for (i = 0; i < MAX_SESSIONS; i++)
-   {
-       tmp_chat = chat_session_arr[i];
-
-       if ( tmp_chat != NULL
+   {   
+        sem_wait(&read_write_mutex);
+        tmp_chat = chat_session_arr[i];
+        sem_post(&read_write_mutex);
+        
+        sem_wait(&read_write_mutex);
+        if ( tmp_chat != NULL
          && tmp_chat->group_chat == false)
-        return tmp_chat;
+        {
+          sem_post(&read_write_mutex);
+          return tmp_chat;
+        }
+        sem_post(&read_write_mutex);
    }
 
    return NULL;
@@ -748,19 +802,26 @@ chat_session_t add_chat(char *client, char *otherclient, bool group_chat)
    for (i = 0; i < MAX_SESSIONS; i++)
    {
       
+      sem_wait(&read_write_mutex);
       tmp_chat = chat_session_arr[i];
+      sem_post(&read_write_mutex);
 
       if ( tmp_chat == NULL)
        {
-         // create a chat session and make the first two clients
-         // the one provided 
-         chat_session_arr[i] = malloc(sizeof(struct chat_session));
-         chat_session_arr[i]->group_chat = false;
-         chat_session_arr[i]->users = calloc(sizeof(struct user), MAX_ONLINE);
-         chat_session_arr[i]->session_name = malloc(strlen(client)+1);
-         chat_session_arr[i]->session_name = client;
+            // create a chat session and make the first two clients
+            // the one provided
+            sem_wait(&read_write_mutex);
+            
+            chat_session_arr[i] = malloc(sizeof(struct chat_session));
+            chat_session_arr[i]->group_chat = false;
+            chat_session_arr[i]->users = calloc(sizeof(struct user), MAX_ONLINE);
+            chat_session_arr[i]->session_name = malloc(strlen(client)+1);
+            chat_session_arr[i]->session_name = client;
+            tmp_chat = chat_session_arr[i];
+            
+            sem_post(&read_write_mutex);
 
-         return chat_session_arr[i];
+            return tmp_chat;
        } 
    }
    
@@ -793,7 +854,9 @@ bool both_in_chat(char *client, char *otherclient, user_t *users)
    {
       if ( users[i] != NULL )
        {
+          sem_wait(&read_write_mutex);
           tmp_username = users[i]->username;
+          sem_post(&read_write_mutex);
 
           if (!strcmp(client, tmp_username))
            client_available = true;
@@ -824,21 +887,30 @@ bool both_in_chat(char *client, char *otherclient, user_t *users)
 
 chat_session_t one_in_chat(char *otherclient)
 {  
-   if (otherclient == NULL)
+
+    if (otherclient == NULL)
     return NULL;
    
-   int i;
+    int i;
+    chat_session_t tmp_chat;
 
-   for (i = 0; i < MAX_SESSIONS; i++)
-   {
-      if ( chat_session_arr[i] != NULL 
-          && !strcmp(otherclient, chat_session_arr[i]->session_name)
-          && chat_session_arr[i]->group_chat == false )
-      {
+    for (i = 0; i < MAX_SESSIONS; i++)
+    {  
+        sem_wait(&read_write_mutex);
+        tmp_chat = chat_session_arr[i];
+        sem_post(&read_write_mutex);
 
-          return chat_session_arr[i];
+        sem_wait(&read_write_mutex);
+        if ( tmp_chat != NULL 
+          && !strcmp(otherclient, tmp_chat->session_name)
+          && tmp_chat->group_chat == false )
+        {
 
-      }
+          sem_post(&read_write_mutex);
+          return tmp_chat;
+
+        }
+        sem_post(&read_write_mutex);
    }
 
   
@@ -848,15 +920,26 @@ chat_session_t one_in_chat(char *otherclient)
 
 int find_client_fd(char *client_username)
 {
-   int i;
+   int i, client_fd;
 
    for (i = 0; i < MAX_ONLINE; i++)
-   {
+   {   
+       sem_wait(&read_write_mutex);
        user_t tmp_user = online_users_arr[i];
+       sem_post(&read_write_mutex);
 
+       sem_wait(&read_write_mutex);
        if (tmp_user != NULL 
           && !strcmp(client_username, tmp_user->username))
-         return tmp_user->client_fd;
+        {
+            client_fd = tmp_user->client_fd;
+            sem_post(&read_write_mutex);
+
+            return client_fd;
+        }
+
+        sem_post(&read_write_mutex);
+
    }
 
    return -1;
@@ -866,11 +949,16 @@ void send_to_all_active_clients(char *message)
 {
   int i;
    for (i = 0; i < MAX_ONLINE; i++)
-   {
-       user_t tmp_user = online_users_arr[i];
+   {   
+        sem_wait(&read_write_mutex);
+        user_t tmp_user = online_users_arr[i];
+        sem_post(&read_write_mutex);
 
-       if (tmp_user != NULL)
-        rio_writen(tmp_user->client_fd, message, strlen(message)+1);
+        sem_wait(&read_write_mutex);
+        if (tmp_user != NULL)
+            rio_writen(tmp_user->client_fd, message, strlen(message)+1);
+        
+        sem_post(&read_write_mutex);
    }
 
    return;
@@ -915,12 +1003,21 @@ user_t get_user(char *user, int client_fd)
   int i;
    
   for (i = 0; i < MAX_ONLINE; i++)
-   {
+   {   
+       sem_wait(&read_write_mutex);
        user_t tmp_user = online_users_arr[i];
+       sem_post(&read_write_mutex);
+
+       sem_wait(&read_write_mutex);
 
        if (tmp_user != NULL && ( ( user != NULL && !strcmp(user, tmp_user->username))
                                    || tmp_user->client_fd == client_fd) )
-         return tmp_user;
+        {
+          sem_post(&read_write_mutex);
+          return tmp_user;
+        }
+
+       sem_post(&read_write_mutex);
    }
 
    return NULL;
