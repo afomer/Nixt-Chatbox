@@ -176,12 +176,25 @@ int main(int argc, char **argv)
             exit(0);
         }
         
+        // Checking broken pipe
+        if (errno == EPIPE)
+        {
+            printf("Lost Connection with the Chat Server\n");
+            return 1;
+        }
+
         /******* reading data from the server *******/
 
         ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
         if ( server_buf_not_empty )
         {
             read(serverfd, server_buf, MAXLINE);
+            
+            if (errno == EPIPE)
+            {
+                printf("Lost Connection with the Chat Server\n");
+                return 1;
+            }
 
             sscanf(server_buf,"%s %s %s", command, arg1, arg2);
             
@@ -221,7 +234,7 @@ int main(int argc, char **argv)
         }
 
         else if (!strcmp("chat\n",buf)) 
-        {
+        {   
             startChat(serverfd, rio_serverfd, name);
         }
 
@@ -231,11 +244,11 @@ int main(int argc, char **argv)
         }
         else if (!strcmp("users\n",buf) )
         {
-            printf("Users online are:\n");
+            printf("Online Users:\n");
             printUsers(serverfd, buf);
         }
         else if (!strcmp("whoami\n",buf) )
-            printf("Name: %s\n", name);
+            printf("Your Username: %s\n", name);
         else 
         {
             time ( &rawtime );
@@ -273,9 +286,24 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     fflush(stdout);
     fgets (other_user, MAXLINE, stdin); // Read command line input
     
+    // other_user string inherently have a '\n', because it's entered by the user
+    // we will copy it to a new variable to remove that \n
+    // (stripped from '\n')
+    int other_user_len = strlen(other_user);
+    char other_user_stripped[other_user_len];
+    memcpy(other_user_stripped, other_user, other_user_len);
+    other_user_stripped[other_user_len - 1] = '\0';
+    
+    if(!strcmp(other_user_stripped, name))
+    {
+        printf("You Can't Chat With Yourself :] \n");
+    } 
+
+    printf("Waiting For %s's Response... \n", other_user_stripped );
+
     chatrqst_instr[0] = 0; 
     // Sending chat requests is like chatrqst <who you want to chat with>
-    strcat(strcat(chatrqst_instr,"chatrqst "), other_user);
+    strcat(strcat(chatrqst_instr,"chatrqst "), other_user_stripped);
         
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, chatrqst_instr, sizeof(chatrqst_instr));
@@ -283,7 +311,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     // Wait for the user response
     read(serverfd, buf, MAXLINE);
         
-    char command[MAXLINE],arg1[MAXLINE], arg2[MAXLINE];
+    char command[MAXLINE], arg1[MAXLINE], arg2[MAXLINE];
 
     sscanf(buf,"%s %s %s",command, arg1, arg2);
     
@@ -294,9 +322,13 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     }
     else if (!strcmp("rejected", command))
     {
-        printf("%s rejected the chat invitation.\n", arg1);
+        printf(RED "%s " RESET GREEN "Rejected your Chat invitation \n" RESET , arg1);
         return;
     }
+
+    // The other user accepted the chat invitation
+    printf( BLUE "%s " RESET RED "Accepted " RESET GREEN "the Chat invitation!\n"RESET, arg1);
+
     // send to the server to be in a ChatState
     char JoinChat_instruct[MAXLINE];
     
@@ -304,14 +336,14 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
 
     /* Telling your thread in the server-side to be in a ChatState*/
     // join a chat a 1-to-1 chat, joinchat <other user name>
-    strcat(strcat(JoinChat_instruct,"joinchat 1to1 "), other_user);
+    strcat(strcat(JoinChat_instruct,"joinchat 1to1 "), other_user_stripped);
         
     sleep(1);
     
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, JoinChat_instruct, strlen(JoinChat_instruct) + 1);
 
-    ChatState(serverfd, rio_serverfd, name, other_user);
+    ChatState(serverfd, rio_serverfd, name, other_user_stripped);
 
     return;
 }
@@ -321,7 +353,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
 void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
 {   
     char buf[MAXLINE];
-    char *other_user_response = calloc(sizeof(char), MAXLINE);
+    char other_user_response[MAXLINE];
     
     // tell client about the user that want to chat with him/her
     printf("%s wants to chat, do you accept? [Y/N] ", other_user);
@@ -344,7 +376,8 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
     {   
         // chatansno , answering no for a chat request (Chat Answer No)
         strcat(strcat(other_user_response, "chatansno "), other_user);
-        rio_writen(serverfd, other_user_response, sizeof(other_user_response));
+        rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
+        printf( RED "Rejected " RESET BLUE "Chat invitation from " RESET GREEN "%s\n" RESET, other_user);
         return;
     }
     else
@@ -354,8 +387,6 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
         rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
         ChatState(serverfd, rio_serverfd, user, other_user);
     }
-
-    free(other_user_response);
 
     return;
 }
@@ -385,7 +416,7 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 
     strcpy(user_text_buf,"");
 
-    printf("Chat Accepted! Joined Chat with " GREEN "%s" RESET "\n", other_user);
+    printf( RED "Joined " RESET "Chat with "GREEN "%s" RESET "\n", other_user);
 
     /* Spawning a thread to read messages directly from the server and prints them
        to the client's screen directly as they are recieved */
@@ -393,7 +424,7 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
     pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(long *)(&serverfd));
     
     // Reading client' messages until exit command
-    while (strcmp("exit\n", user_text_buf))
+    while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf))
     { 
         printf(">> ");
         fflush(stdout);
@@ -410,10 +441,21 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
         timeString = strtok(NULL," ");
         timeString = strtok(NULL," ");
         timeString = strtok(NULL," ");
+         
+        // Before exiting the chat announce it 
+        if (!strcmp("exit\n", user_text_buf) || !strcmp("q\n", user_text_buf))
+        {
+            // <usr> Exited The Chat
+            sprintf(meta_info_buf, YELLOW "[%s]%s %s " RESET "%s", 
+                   timeString, myColor, client, RED "Exited The Chat\n" RESET); 
+        }
+        else
+        {
+            sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", 
+                       timeString, myColor, client, user_text_buf); 
+        }
 
-        sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", timeString, myColor, client, user_text_buf); 
-
-        rio_writen(serverfd, meta_info_buf, MAXLINE);
+        rio_writen(serverfd, meta_info_buf, strlen(meta_info_buf) + 1);
     }
 
     // Terminating the reading thread
@@ -421,7 +463,7 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 
     rio_writen(serverfd,"exit",strlen("exit")+1);
 
-    printf("exited chat\n");
+    printf(RED "Exited " RESET "Chat with " GREEN "%s" RESET "\n", other_user);
 
     return;
 }

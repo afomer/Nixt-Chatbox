@@ -234,9 +234,16 @@ void serve_client(void* fd_ptr)
         
         bytes_read = read(client_fd, instruction_buff, MAXLINE);
 
-        if (bytes_read < 1)
+        if (bytes_read < 0)
           break;
         
+        // Checking broken pipe
+        if (errno == EPIPE)
+        {
+            printf("Lost Connection with %s\n", username);
+            break;
+        }
+
         instruct_t instruct = read_instruction(instruction_buff, bytes_read);
 
         execute_instrcution(username, client_fd, rio_client_fd, instruct);
@@ -283,12 +290,13 @@ void execute_instrcution(char *client, int client_fd,
     else if (!strcmp(command, "chatrqst")) // chatrqst <otherclient>
     {
         char chat_request[MAXLINE];
+        chat_request[0] = 0;
 
 
         if (!is_user_online(arg1))
         {
-          rio_writen(client_fd,"offline", sizeof("offline"));
-          rio_writen(client_fd,"\n", sizeof("\n"));
+          rio_writen(client_fd,"offline", strlen("offline") + 1);
+          rio_writen(client_fd,"\n", strlen("\n") + 1);
 
           return;
 
@@ -296,11 +304,12 @@ void execute_instrcution(char *client, int client_fd,
 
         // Ask the client if he want to chat with the otherclient       
         char chat_request_answer[MAXLINE];
+        chat_request_answer[0] = 0;
        
         int otherclient_fd = find_client_fd(arg1);
 
         strcat(strcat(chat_request, "chatans "), client); // chatans <me>
-        rio_writen(otherclient_fd, chat_request, sizeof(chat_request));
+        rio_writen(otherclient_fd, chat_request, strlen(chat_request) + 1);
 
         size_t buff_size = read(client_fd, chat_request_answer,MAXLINE);
         
@@ -313,6 +322,7 @@ void execute_instrcution(char *client, int client_fd,
     {  
        // telling the otherclient, that the user rejected the request       
        char chat_request_answer[MAXLINE];
+       chat_request_answer[0] = 0;
        
        int otherclient_fd = find_client_fd(arg1);
        
@@ -321,13 +331,14 @@ void execute_instrcution(char *client, int client_fd,
        strcat(strcat(chat_request_answer, "rejected "), client);
 
        rio_writen(otherclient_fd, chat_request_answer, 
-                               sizeof(chat_request_answer));
+                               strlen(chat_request_answer)+1);
 
     }
     else if (!strcmp(command, "chatansyes")) // chatansno <otherclient>
     {  
        // telling the otherclient, that the user accepted the request       
        char chat_request_answer[MAXLINE];
+       chat_request_answer[0] = 0;
        
        int otherclient_fd = find_client_fd(arg1);
        
@@ -339,6 +350,7 @@ void execute_instrcution(char *client, int client_fd,
        // make a chat, join it, and be in a chat state 
        // (in chat state don't send until there is at least 1 user)
        printf("%s joining with %s\n",client, arg1);
+
        chat_session_t new_chat = add_chat(client, arg1, false);
        
        rio_writen(otherclient_fd, chat_request_answer, 
@@ -380,6 +392,7 @@ void execute_instrcution(char *client, int client_fd,
     else if (!strcmp(command, "users"))
     {   
       char users[MAXLINE];
+      users[0] = 0;
 
       int i;
       for (i = 0; i < MAX_ONLINE; i++)
@@ -387,14 +400,14 @@ void execute_instrcution(char *client, int client_fd,
           sem_wait(&read_write_mutex);
           if ( online_users_arr[i] != NULL )
           { 
-            users[0] = 0;
             strcat(strcat(users, online_users_arr[i]->username), " \n");
             printf("%s\n", online_users_arr[i]->username);
           }
           sem_post(&read_write_mutex);
         }
 
-        rio_writen(client_fd, users, sizeof(users));
+        rio_writen(client_fd, users, strlen(users) + 1);
+        printf("%s\n", users );
     }
 
     free(instruct->command);
@@ -634,7 +647,9 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
         if ( client_buf_not_empty )
         {
           read(client_fd, buf, MAXLINE);
-          send_to_chat_session(chat_session, buf);
+
+          if ( strcmp(buf ,"exit\n") && strcmp(buf ,"exit"))
+            send_to_chat_session(chat_session, buf);
 
           printf(">> %s\n", buf );
 
@@ -645,8 +660,8 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
 
     }
 
-    leave_chat_session(chat_session, client_fd);
     printf("%s left chat\n", user->username );
+    leave_chat_session(chat_session, client_fd);
 
 }
 
@@ -663,14 +678,14 @@ void leave_chat_session(chat_session_t chat_session, int client_fd)
   for (i = 0; i < MAX_ONLINE; i++)
   {   
       sem_wait(&read_write_mutex);
+
       if ( chat_session->users[i] != NULL 
            && chat_session->users[i]->client_fd == client_fd )
       {
         //free(chat_session->users[i]->username);
         chat_session->users[i] = NULL;
-        chat_session->users[i]->chatting = false;
-
       }
+
       sem_post(&read_write_mutex);
   }
 }
@@ -985,9 +1000,9 @@ bool want_to_chat(char *client, char *otherclient)
 
     /* first send a "ask connect", then the name of the client
        so the client-side identfiy the command first */
-    rio_writen(otherclient_fd, "askcnct", sizeof("askcnct")+1);
+    rio_writen(otherclient_fd, "askcnct", strlen("askcnct")+1);
 
-    rio_writen(otherclient_fd, client, sizeof(client)+1);
+    rio_writen(otherclient_fd, client, strlen(client)+1);
 
     read(otherclient_fd, buf, MAXLINE);
 
