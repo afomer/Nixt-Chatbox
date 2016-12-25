@@ -41,6 +41,7 @@
 #define MAGENTA "\x1b[35m"
 #define CYAN    "\x1b[36m"
 #define RESET   "\x1b[0m" // Reset color code
+#define RESPONSE_TIMEOUT 5
 
 char* color_array[5] = {RED,GREEN,BLUE,CYAN,MAGENTA};
 
@@ -229,7 +230,8 @@ int main(int argc, char **argv)
                  || !strcmp("quit\n",buf)
                  || !strcmp("q\n",buf) )// Exit client
         {
-           
+            rio_writen(serverfd,"exit",strlen("exit")+1);
+            close(serverfd);
             exit(0);
         }
 
@@ -297,6 +299,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     if(!strcmp(other_user_stripped, name))
     {
         printf("You Can't Chat With Yourself :] \n");
+        return;
     } 
 
     printf("Waiting For %s's Response... \n", other_user_stripped );
@@ -308,16 +311,38 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name)
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, chatrqst_instr, sizeof(chatrqst_instr));
         
-    // Wait for the user response
+    // Wait for the user response, and timeout after 5 seconds
+    int other_client_responded = 0;
+    int seconds = 0;
+    ioctl(serverfd, SIOCINQ, &other_client_responded);
+    while ( !other_client_responded)
+    {
+        ioctl(serverfd, SIOCINQ, &other_client_responded);
+        usleep(500);
+        seconds++;
+    }
+
+    if ( !other_client_responded )
+    {
+        printf("Invitation Timed out\n");
+        return;
+    }
+    
     read(serverfd, buf, MAXLINE);
         
     char command[MAXLINE], arg1[MAXLINE], arg2[MAXLINE];
+    printf("c:%s \n", command );
 
     sscanf(buf,"%s %s %s",command, arg1, arg2);
     
-    if (!strcmp("offline", command))
+    if (!strcmp("offline", command) || !strcmp("offline\n", command))
     {
-        printf("The User is offline/unavailable\n");
+        printf(RED "%s " RESET "is " BLUE "offline" RESET "/" GREEN "unavailable\n" RESET, other_user_stripped);
+        return;
+    }
+    else if (!strcmp("chatting", command) || !strcmp("chatting", command) )
+    {
+        printf("%s is busy/chatting with someone else =] \n", other_user_stripped);
         return;
     }
     else if (!strcmp("rejected", command))

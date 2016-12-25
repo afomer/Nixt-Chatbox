@@ -79,7 +79,7 @@ sem_t read_write_mutex;
 void serve_client(void *);
 instruct_t read_instruction(char *instruction_buff, size_t buff_size);
 void execute_instrcution(char *username, int client_fd, 
-              rio_t rio_client_fd , instruct_t instuc);
+              rio_t rio_client_fd , instruct_t instuc, int *client_exited_addr);
 bool is_user_online(char *user);
 void start_chat(char *client, char *otherclient, rio_t rio_client_fd);
 chat_session_t active_1to1_chat(char *client, char *otherclient);
@@ -96,7 +96,8 @@ chat_session_t one_in_chat(char *otherclient);
 void online_user_add(char *user, int client_fd);
 void send_to_all_active_clients(char *message);
 bool empty_chat_session(chat_session_t chat_session);
-
+void online_user_remove(char *user, int client_fd);
+bool is_chatting(char *client, int client_fd);
 /*
  * * * * * * * * * * * * * * * * * * *
  * * * * * * * * * * * * * * * * * * *
@@ -225,9 +226,12 @@ void serve_client(void* fd_ptr)
 
     /* variables to keep track of the number of bytes read from the user */
     int bytes_read;
+
+    int client_exited = 0;
+    int *client_exited_addr = &client_exited;
     
     /* Keep reading the user instructions, and execute them accordingly */
-    while (true)
+    while (!client_exited)
     {
 
         bytes_read = 0;
@@ -246,11 +250,13 @@ void serve_client(void* fd_ptr)
 
         instruct_t instruct = read_instruction(instruction_buff, bytes_read);
 
-        execute_instrcution(username, client_fd, rio_client_fd, instruct);
+        execute_instrcution(username, client_fd, rio_client_fd, instruct, client_exited_addr);
         
     }
-
+    
+    //Never reache here
     close(client_fd);
+    return;
 
 }
 
@@ -263,7 +269,7 @@ void serve_client(void* fd_ptr)
  * * * * * * * * * * * * * * * * * * * * * *
  */
 void execute_instrcution(char *client, int client_fd, 
-            rio_t rio_client_fd , instruct_t instruct )
+            rio_t rio_client_fd , instruct_t instruct, int *client_exited_addr)
 { 
    /* if the instruction is NULL tell the user the command is invalid */
    if ( instruct == NULL )
@@ -283,9 +289,11 @@ void execute_instrcution(char *client, int client_fd,
    // printf("%s \n", command );
     // exit instruction, to exit the chat client
     if (!strcmp(command, "exit"))
-    {    
-        close(client_fd); 
-        exit(0);
+    {   
+        online_user_remove(client, client_fd);
+        printf("\n");
+        *client_exited_addr = 1;
+        return;
     }
     else if (!strcmp(command, "chatrqst")) // chatrqst <otherclient>
     {
@@ -295,11 +303,13 @@ void execute_instrcution(char *client, int client_fd,
 
         if (!is_user_online(arg1))
         {
-          rio_writen(client_fd,"offline", strlen("offline") + 1);
-          rio_writen(client_fd,"\n", strlen("\n") + 1);
-
+          rio_writen(client_fd,"offline\n", strlen("offline\n") + 1);
           return;
-
+        }
+        else if (is_chatting(arg1, -1))
+        {
+          rio_writen(client_fd,"chatting\n", strlen("chatting\n") + 1);
+          return;
         }
 
         // Ask the client if he want to chat with the otherclient       
@@ -315,7 +325,7 @@ void execute_instrcution(char *client, int client_fd,
         
         // read the response, then parse it and execute it with a recursive call
         execute_instrcution(client, client_fd, rio_client_fd, 
-            read_instruction(chat_request_answer,buff_size));
+            read_instruction(chat_request_answer,buff_size), client_exited_addr);
 
     }
     else if (!strcmp(command, "chatansno")) // chatansno <otherclient>
@@ -509,6 +519,92 @@ void online_user_add(char *user, int client_fd)
 
 /*
  * * * * * * * * * * * * * * * * * * * * * *
+ * is_chatting:                            *
+ * Client chatting or not                  *
+ * * * * * * * * * * * * * * * * * * * * * *
+ */
+bool is_chatting(char *client, int client_fd)
+{
+    int i;
+
+    /* look for an empty spot in the online users array,
+       if no empty slot is found, tell the client and close the connection */
+    for (i = 0; i < MAX_ONLINE; i++)
+    {
+                
+        // If an empty cache slot is found update it fields
+        sem_wait(&read_write_mutex);
+        if ( online_users_arr[i] != NULL 
+           && (online_users_arr[i]->client_fd == client_fd
+            || !strcmp(client, online_users_arr[i]->username) ) )
+        {   
+    
+            if (online_users_arr[i]->chatting)
+            {
+                sem_post(&read_write_mutex);     
+                return true;
+            }
+            else
+            {
+                sem_post(&read_write_mutex);     
+                return false;
+            }
+          
+        }
+
+        sem_post(&read_write_mutex);
+        
+
+    }
+    
+    /* should be send by client code */ // serverfull
+    rio_writen(client_fd, "full",strlen("full") + 1);
+
+    close(client_fd);     
+    
+    exit(0);
+}
+
+/*
+ * * * * * * * * * * * * * * * * * * * * *  *
+ * online_user_remove:                        
+ * Removing users from the online users array 
+ * * * * * * * * * * * * * * * * * * * * * *  
+ */
+void online_user_remove(char *user, int client_fd)
+{
+    int i;
+
+    /* look for an empty spot in the online users array,
+       if no empty slot is found, tell the client and close the connection */
+    for (i = 0; i < MAX_ONLINE; i++)
+    {
+                
+        // If an empty cache slot is found update it fields
+        sem_wait(&read_write_mutex);
+        if ( online_users_arr[i] != NULL
+             && (online_users_arr[i]->client_fd == client_fd 
+                      || !strcmp(user, online_users_arr[i]->username) ) )
+        {   
+    
+          online_users_arr[i] = NULL;
+          
+          sem_post(&read_write_mutex);
+          
+          return;       
+        }
+
+        sem_post(&read_write_mutex);
+        
+
+    }
+        
+    
+    return;
+}
+
+/*
+ * * * * * * * * * * * * * * * * * * * * * *
  * is_user_online:                         *
  * Checking if the user is in              *
  * the online users array                  *
@@ -617,10 +713,9 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
       if ( chat_session->users[i] == NULL)
        {
          chat_session->users[i] = malloc(sizeof(struct user));
-         chat_session->users[i]->username = malloc(MAXLINE);
-
          chat_session->users[i]->username = user->username;
          chat_session->users[i]->client_fd = client_fd;
+         chat_session->users[i]->chatting = true;
          sem_post(&read_write_mutex);
          break; // sorry Prof. Saquib
        }
