@@ -87,7 +87,7 @@ bool both_in_chat(char *client, char *otherclient, user_t *users);
 void join_chat_session(chat_session_t chat, int client_fd, rio_t rio_client_fd);
 void send_to_chat_session(chat_session_t chat_session, char *text);
 void leave_chat_session(chat_session_t chat_session, int client_fd);
-chat_session_t add_chat(char *client, char *otherclient, bool group_chat);
+chat_session_t add_chat(char *client, bool group_chat, char *session_name);
 int find_client_fd(char *client);
 bool want_to_chat(char* client, char *otherclient);
 user_t get_user(char *client, int client_fd);
@@ -98,6 +98,9 @@ void send_to_all_active_clients(char *message);
 bool empty_chat_session(chat_session_t chat_session);
 void online_user_remove(char *user, int client_fd);
 bool is_chatting(char *client, int client_fd);
+bool group_exist(char *group_name);
+chat_session_t get_chat(char *chat_session_name, bool group_chat);
+
 /*
  * * * * * * * * * * * * * * * * * * *
  * * * * * * * * * * * * * * * * * * *
@@ -328,6 +331,11 @@ void execute_instrcution(char *client, int client_fd,
             read_instruction(chat_request_answer,buff_size), client_exited_addr);
 
     }
+    else if (!strcmp(command, "crtgrp")) // chatrqst <otherclient>
+    {
+        add_chat(client, true, arg1);
+        rio_writen(client_fd, "created", strlen("created")+1);
+    }
     else if (!strcmp(command, "chatansno")) // chatansno <otherclient>
     {  
        // telling the otherclient, that the user rejected the request       
@@ -361,7 +369,7 @@ void execute_instrcution(char *client, int client_fd,
        // (in chat state don't send until there is at least 1 user)
        printf("%s joining with %s\n",client, arg1);
 
-       chat_session_t new_chat = add_chat(client, arg1, false);
+       chat_session_t new_chat = add_chat(client, false, client);
        
        rio_writen(otherclient_fd, chat_request_answer, 
                                strlen(chat_request_answer) + 1);       
@@ -376,6 +384,13 @@ void execute_instrcution(char *client, int client_fd,
       // join the chat session that only have 1 user which is the otherclient
       printf("<>joining with %s %s\n", arg1, arg2);
       join_chat_session( one_in_chat(arg2), client_fd, rio_client_fd );
+
+    }
+    else if (!strcmp(command, "joinchat") && !strcmp(arg1, "grp")) // joinchat grp <group name>
+    {  
+      // join the chat session that only have 1 user which is the otherclient
+      printf("<> joining group chat %s\n", arg2);
+      join_chat_session( get_chat(arg2, true), client_fd, rio_client_fd );
 
     }
     else if (!strcmp(command, "msg")) /* texting an online user */
@@ -412,6 +427,42 @@ void execute_instrcution(char *client, int client_fd,
           { 
             strcat(strcat(users, online_users_arr[i]->username), " \n");
             printf("%s\n", online_users_arr[i]->username);
+          }
+          sem_post(&read_write_mutex);
+        }
+
+        rio_writen(client_fd, users, strlen(users) + 1);
+        printf("%s\n", users );
+    }
+    else if (!strcmp(command, "grpexist"))
+    {   
+      char users[MAXLINE];
+      users[0] = 0;
+      chat_session_t tmp_chat;
+
+      if ( (tmp_chat = get_chat(arg1, true)) != NULL )
+      {
+          rio_writen(client_fd, "yes", strlen("yes") + 1);
+      }
+      else
+      {
+          rio_writen(client_fd, "no", strlen("no") + 1);
+      }
+    }
+    else if (!strcmp(command, "groups") || !strcmp(command, "grps"))
+    {   
+      char users[MAXLINE];
+      users[0] = 0;
+      int i;
+
+      for (i = 0; i < MAX_SESSIONS; i++)
+        {
+          sem_wait(&read_write_mutex);
+          if ( chat_session_arr[i] != NULL
+               && chat_session_arr[i]->group_chat)
+          { 
+            strcat(strcat(users, chat_session_arr[i]->session_name), " \n");
+            printf("%s\n", chat_session_arr[i]->session_name);
           }
           sem_post(&read_write_mutex);
         }
@@ -670,7 +721,7 @@ void start_chat(char *client, char *otherclient, rio_t rio_client_fd)
     {   
         // making a chat session include joining it
         if ( (chat = chat_created(client,otherclient)) == NULL )
-            chat = add_chat(client, otherclient, false);
+            chat = add_chat(client, false, client);
     }
     
     /* joinning a chat session mean you will start to recieve and send msgs */
@@ -713,7 +764,8 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
       if ( chat_session->users[i] == NULL)
        {
          chat_session->users[i] = malloc(sizeof(struct user));
-         chat_session->users[i]->username = user->username;
+         chat_session->users[i]->username = malloc(strlen(user->username) + 1);
+         strcpy(chat_session->users[i]->username, user->username);
          chat_session->users[i]->client_fd = client_fd;
          chat_session->users[i]->chatting = true;
          sem_post(&read_write_mutex);
@@ -754,7 +806,7 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
         
 
     }
-
+    free(buf);
     printf("%s left chat\n", user->username );
     leave_chat_session(chat_session, client_fd);
 
@@ -897,7 +949,7 @@ chat_session_t chat_created(char *client, char *otherclient)
  * * * * * * * * * * * * * * * * * * * * * *
  */
 
-chat_session_t add_chat(char *client, char *otherclient, bool group_chat)
+chat_session_t add_chat(char *client, bool group_chat, char *session_name)
 {
    /* when you add a chat session you join, it and wait for the other
       person to join, since this happen after the acceptance of 
@@ -923,10 +975,10 @@ chat_session_t add_chat(char *client, char *otherclient, bool group_chat)
             sem_wait(&read_write_mutex);
             
             chat_session_arr[i] = malloc(sizeof(struct chat_session));
-            chat_session_arr[i]->group_chat = false;
+            chat_session_arr[i]->group_chat = group_chat;
             chat_session_arr[i]->users = calloc(sizeof(struct user), MAX_ONLINE);
             chat_session_arr[i]->session_name = malloc(strlen(client)+1);
-            chat_session_arr[i]->session_name = client;
+            strcpy(chat_session_arr[i]->session_name, session_name);
             tmp_chat = chat_session_arr[i];
             
             sem_post(&read_write_mutex);
@@ -1108,6 +1160,83 @@ bool want_to_chat(char *client, char *otherclient)
         return true; 
 }
 
+/*
+ * * * * * * * * * * * * * * * * * * * * * *
+ * group_exist:                           
+ * return true iff there exist a chat session 
+ * with the given name               
+ * * * * * * * * * * * * * * * * * * * * * *
+ */
+bool group_exist(char *group_name)
+{   
+    int i;
+    chat_session_t tmp_chat;
+    for (i = 0; i < MAX_SESSIONS; i++)
+     {    
+        sem_wait(&read_write_mutex);
+        tmp_chat = chat_session_arr[i];
+        sem_post(&read_write_mutex);
+        
+        sem_wait(&read_write_mutex);
+
+        if ( tmp_chat != NULL
+          && tmp_chat->group_chat 
+          && !strcmp(tmp_chat->session_name, group_name))
+        {
+
+          if ( tmp_chat->group_chat == false)
+          {
+              sem_post(&read_write_mutex);
+              return true;
+          }
+
+          sem_post(&read_write_mutex);
+        }
+     }
+
+    return false;
+
+}
+
+/*
+ * * * * * * * * * * * * * * * * * * * * * *
+ * get_chat:                           
+ * return user struct for a chat session with given username               
+ * * * * * * * * * * * * * * * * * * * * * *
+ */
+chat_session_t get_chat(char *chat_session_name, bool group_chat)
+{  
+  int i;
+   
+  for (i = 0; i < MAX_SESSIONS; i++)
+   {   
+       sem_wait(&read_write_mutex);
+       chat_session_t tmp_chat = chat_session_arr[i];
+       sem_post(&read_write_mutex);
+
+       sem_wait(&read_write_mutex);
+       if (tmp_chat != NULL 
+        && ( !group_chat || tmp_chat->group_chat )
+        && !strcmp(chat_session_name, tmp_chat->session_name))
+        {
+          sem_post(&read_write_mutex);
+          return tmp_chat;
+        }
+
+       sem_post(&read_write_mutex);
+   }
+
+   return NULL;
+
+}
+
+/*
+ * * * * * * * * * * * * * * * * * * * * * *
+ * get_user:                           
+ * return user struct for a client with given username               
+ * and/or file descriptor                           
+ * * * * * * * * * * * * * * * * * * * * * *
+ */
 user_t get_user(char *user, int client_fd)
 {  
   int i;

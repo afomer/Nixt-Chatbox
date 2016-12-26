@@ -42,8 +42,6 @@
 #define CYAN    "\x1b[36m"
 #define RESET   "\x1b[0m" // Reset color code
 #define RESPONSE_TIMEOUT 5
-#define NUMCOLORSFORUSERNAME 5
-
 
 char* color_array[5] = {RED,GREEN,BLUE,CYAN,MAGENTA};
 
@@ -56,20 +54,23 @@ struct ChatBuffer
 };
 
 struct ChatBuffer ClientChatBuff;
+char name[MAXLINE];
+int serverfd;
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Function Definitions /////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void usage(void); // Prints info about app
 void showCommands(void); // Show commands for user
 void printUsers(int serverfd, char *buf); // Show all users
-void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
+void startChat(int serverfd, rio_t rio_serverfd, char *name);
 void startGroup();
 void printHelpInfo(); // prints help info: add later
+void JoinGroup();
 
 // Asking the user about a chat request
 void ChatRequest(int serverfd, rio_t rio_serverfd, 
                                         char *name, char *other_user); 
-void ChatState(int serverfd, rio_t rio_serverfd, char *name, char *other_user);
+void ChatState(int serverfd, char *name, char *other_user);
 void PrintCurrentTime();
 void ReadingChatFromServer(void *ChatBuffer);
 
@@ -77,11 +78,8 @@ void ReadingChatFromServer(void *ChatBuffer);
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-// Time Functions //
-char* returnWeekday(int x);
-void trimTime(char* time);
-char* getSurnameOfDate(char* date);
-/////////////////////
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// Main Function  /////////////////////////////////
@@ -93,11 +91,18 @@ int main(int argc, char **argv)
 {
     char c;
     char buf[MAXLINE];
-    char name[MAXLINE];
+    char* timeString = NULL;
+    char* splitString = NULL;
+    serverfd = -1;
     
     name[0] = 0; 
     char *envName = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, envName);
+
+    // Variables to get local time
+    time_t rawtime;
+    struct tm * timeinfo;
+
 
     /////////////////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////
@@ -142,7 +147,7 @@ int main(int argc, char **argv)
 
     // Connect to the NIXT server the client requested 
     // (make sure they are not corrupted)
-    int serverfd = open_clientfd(argv[1], argv[2]);
+    serverfd = open_clientfd(argv[1], argv[2]);
 
     // if the domain couldn't be identinfied, 
     // write bad GET Request to the user
@@ -243,16 +248,17 @@ int main(int argc, char **argv)
 
         else if (!strcmp("chat\n",buf)) 
         {   
-            startChat(serverfd, rio_serverfd, name,NULL);
-        }
-        else if (strstr(buf,"chat "))
-        {
-            startChat(serverfd, rio_serverfd, name,buf+5);
+            startChat(serverfd, rio_serverfd, name);
         }
 
-        else if (!strcmp("group\n",buf)) 
+        else if (!strcmp("group\n",buf) || !strcmp("grp\n",buf)) 
         {
-            startGroup();
+            JoinGroup();
+        }
+        else if (!strcmp("groups\n",buf) || !strcmp("grps\n",buf)) 
+        {
+            printf("Group Chats:\n");
+            printUsers(serverfd, buf);
         }
         else if (!strcmp("users\n",buf) )
         {
@@ -263,7 +269,19 @@ int main(int argc, char **argv)
             printf("Your Username: %s\n", name);
         else 
         {
-            printf(RED "Invalid Command." RESET " Try Again. Type \"c\" to see commands \n");
+            time ( &rawtime );
+            timeinfo = localtime ( &rawtime );
+            splitString  = asctime(timeinfo);
+
+            // Split string to get just the time.
+            timeString = strtok(splitString," ");
+            timeString = strtok(NULL," ");
+            timeString = strtok(NULL," ");
+            timeString = strtok(NULL," ");
+
+            printf(YELLOW"[%s] " GREEN "%s: " RESET "%s", timeString, name, buf); 
+                                // Print back given input (echo it)
+            fflush(stdout); // Flush to screen
         }
     }       
 }
@@ -278,22 +296,14 @@ int main(int argc, char **argv)
 ////////////////////////// Server Functions ///////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
+void startChat(int serverfd, rio_t rio_serverfd, char *name)
 {
     char other_user[MAXLINE], // name of the user the client want to chat with
     chatrqst_instr[MAXLINE], buf[MAXLINE];
+    printf("Enter Name/ID: ");
+    fflush(stdout);
+    fgets (other_user, MAXLINE, stdin); // Read command line input
     
-    if (typedName)
-    {
-        strcpy(other_user,typedName);
-    }
-    else
-    {
-        printf("Enter Name/ID: ");
-        fflush(stdout);
-        fgets(other_user, MAXLINE, stdin); // Read command line input   
-    }
-
     // other_user string inherently have a '\n', because it's entered by the user
     // we will copy it to a new variable to remove that \n
     // (stripped from '\n')
@@ -374,7 +384,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     // Asking the server, to invite the other user to join a chat
     rio_writen(serverfd, JoinChat_instruct, strlen(JoinChat_instruct) + 1);
 
-    ChatState(serverfd, rio_serverfd, name, other_user_stripped);
+    ChatState(serverfd, name, other_user_stripped);
 
     return;
 }
@@ -416,7 +426,7 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
         // chatansyes , answering yes for a chat request (Chat Answer yes)
         strcat(strcat(other_user_response, "chatansyes "), other_user);
         rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
-        ChatState(serverfd, rio_serverfd, user, other_user);
+        ChatState(serverfd, user, other_user);
     }
 
     return;
@@ -434,18 +444,16 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
  * thread and then sent to every user in the chat                          
  * * * * * * * * * * * * * * * * * * * * * *
  */
-void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
+void ChatState(int serverfd, char *client, char *other_user)
 {
     char user_text_buf[MAXLINE];
     char meta_info_buf[MAXLINE];
-    char* myColor = color_array[rand()%NUMCOLORSFORUSERNAME];
+    char* myColor = color_array[rand()%5];
 
     time_t rawtime;
+    struct tm * timeinfo;
+    char* timeString;
     char* splitString;
-    char* day;
-    char* date;
-    char* timeOfDay;
-    char* month;
 
     strcpy(user_text_buf,"");
 
@@ -460,39 +468,35 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
     
     printf("\x1b[K>> "); // erase line and start writing
     
-    // Reading client' messages until exit command or end of file (cntrl+D)
-    while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf)
-                    && !feof(stdin))
+    // Reading client' messages until exit command
+    while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf))
     { 
         fflush(stdout);
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
         
         // <my_name> <space> <msg>
-        meta_info_buf[0] = 0;
+        meta_info_buf[0] = 0; 
+        time ( &rawtime );
+        timeinfo = localtime ( &rawtime );
+        splitString  = asctime(timeinfo);
 
-
-        time( &rawtime );
-        splitString = ctime(&rawtime);
-
-        // Split string to get proper time format.
-        day   = strtok(splitString," ");
-        month = strtok(NULL," ");
-        (void)month; // TO avoid compiler issues.
-        date  = strtok(NULL," ");
-        timeOfDay  = strtok(NULL," ");
-        trimTime(timeOfDay);
-
+        // Split string to get just the time.
+        timeString = strtok(splitString," ");
+        timeString = strtok(NULL," ");
+        timeString = strtok(NULL," ");
+        timeString = strtok(NULL," ");
+         
         // Before exiting the chat announce it 
         if (!strcmp("exit\n", user_text_buf) || !strcmp("q\n", user_text_buf))
         {
             // <usr> Exited The Chat
-            sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED"%s " RESET "%s", 
-                day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Exited The Chat\n"); 
+            sprintf(meta_info_buf, YELLOW "[%s]%s %s " RESET "%s", 
+                   timeString, myColor, client, RED "Exited The Chat\n" RESET); 
         }
         else
         {
-            sprintf(meta_info_buf,YELLOW"[%s-%s%s-%s]%s %s: " RESET "%s", 
-                    day,date,getSurnameOfDate(date),timeOfDay, myColor, client, user_text_buf);
+            sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", 
+                       timeString, myColor, client, user_text_buf);
             // delete your line from the terminal
             printf("\x1b[A\x1b[K"); // erase line and start writing
 
@@ -539,6 +543,118 @@ void ReadingChatFromServer(void *ChatBuffer)
     }
 
     return;
+}
+
+/*
+ * JoinGroup - Join a group chat, or make one if you want to
+ */
+void JoinGroup()
+{
+    char GroupName[MAXLINE], // name of the user the client want to chat with
+    GroupNameInstruc[MAXLINE], buf[MAXLINE];
+    printf("Group Name/ID: ");
+    fflush(stdout);
+    fgets (GroupName, MAXLINE, stdin); // Read command line input
+    
+    // GroupName string inherently have a '\n', because it's entered by the user
+    // we will copy it to a new variable to remove that \n
+    // (stripped from '\n')
+    int GroupNameLen = strlen(GroupName);
+    char GroupNameStripped[GroupNameLen];
+    memcpy(GroupNameStripped, GroupName, GroupNameLen);
+    GroupNameStripped[GroupNameLen - 1] = '\0';
+    
+    // Checking if the group exit on the server
+    GroupNameInstruc[0] = 0; 
+    // Sending chat requests is like chatrqst <who you want to chat with>
+    strcat(strcat(GroupNameInstruc,"grpexist "), GroupName);
+        
+    // Asking the server, to invite the other user to join a chat
+    rio_writen(serverfd, GroupNameInstruc, strlen(GroupNameInstruc) + 1);
+    
+    printf("Checking if the group exist...\n");
+    
+    int server_responded = 0;
+
+    ioctl(serverfd, SIOCINQ, &server_responded);
+   
+    while ( !server_responded)
+    {
+        ioctl(serverfd, SIOCINQ, &server_responded);
+    }
+    
+    read(serverfd, buf, MAXLINE);
+        
+    char command[MAXLINE], arg1[MAXLINE], arg2[MAXLINE], CreationRequest[MAXLINE];
+
+    sscanf(buf,"%s %s %s",command, arg1, arg2);
+    
+    if (!strcmp("no", command) || !strcmp("no\n", command) )
+    {
+        printf("The Group does not exit, do you want to create it [y/n] ? ");
+        
+        fgets(CreationRequest, MAXLINE, stdin);      
+        
+        while (strcmp(CreationRequest,"n\n") && strcmp(CreationRequest,"N\n") 
+           && strcmp(CreationRequest,"Y\n") && strcmp(CreationRequest,"y\n"))
+        {
+            CreationRequest[0] = 0; 
+            printf("\nPlease answer with y or n. ");
+            fflush(stdout);
+            fgets(CreationRequest, MAXLINE, stdin); // Read command line input
+        }
+
+        if ( !strcmp(CreationRequest,"y\n") || !strcmp(CreationRequest,"Y\n") 
+            || !strcmp(CreationRequest,"y") || !strcmp(CreationRequest,"Y"))
+        {   
+
+            // Tell the server to make a group and go into a chatstate
+            buf[0] = 0;
+            strcat(strcat(buf, "crtgrp "), GroupNameStripped);
+            rio_writen(serverfd, buf, strlen(buf) + 1);
+
+            ioctl(serverfd, SIOCINQ, &server_responded);
+
+            while ( !server_responded )
+            {
+                ioctl(serverfd, SIOCINQ, &server_responded);
+            }
+
+            read(serverfd, buf, MAXLINE);
+            
+            sscanf(buf,"%s %s %s",command, arg1, arg2);
+
+            if ( !strcmp("created", command) || !strcmp("created\n", command))
+            {
+                printf(RED "Created group " RESET BLUE "%s !" RESET "\n", GroupNameStripped);
+            }
+            else
+            {
+                printf("Some Error Occured While Creating The Group\n");
+                return;
+            }
+
+        }
+        else
+            return;
+    }
+
+    // send to the server to be in a ChatState
+    char JoinChat_instruct[MAXLINE];
+    
+    JoinChat_instruct[0] = 0; 
+
+    /* Telling your thread in the server-side to be in a ChatState*/
+    // join a chat a 1-to-1 chat, joinchat <other user name>
+    strcat(strcat(JoinChat_instruct,"joinchat grp "), GroupName);
+
+    // Asking the server, to invite the other user to join a chat
+    rio_writen(serverfd, JoinChat_instruct, strlen(JoinChat_instruct) + 1);
+
+    ChatState(serverfd, name, GroupNameStripped);
+
+    return;
+ 
 }
 
 
@@ -588,13 +704,17 @@ void showCommands(void)
     printf("User Commands:\n");
     printf(YELLOW "   \"users\"" RESET " : Show users on this machine\n");
     printf(YELLOW "   \"chat\" " RESET " : Start a chat with a user\n");
-    printf(YELLOW "   \"group\"" RESET " : Start a group chat\n");
+    printf(YELLOW "   \"group\" or \"grp\"  " RESET " : Start a group chat\n");
+    printf(YELLOW "   \"groups\" or \"grps\"  " RESET " : List groups\n");
     printf(YELLOW "   \"exit\" " RESET " : Exit\n");
     return;
 }
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+
+
+
 
 // Unimplemented Functions
 void startGroup()
@@ -608,51 +728,6 @@ void printHelpInfo()
 }
 void PrintCurrentTime()
 {
-}
 
 
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////// Time Functions; /////////////////////////////////
-char* returnWeekday(int x)
-{
-    char *weekday = calloc(sizeof(char),15);
-    if (x == 0)
-        strcpy(weekday,"Sun");
-    else if (x == 1)
-        strcpy(weekday,"Mon");
-    else if (x == 2)
-        strcpy(weekday,"Tue");
-    else if (x == 3)
-        strcpy(weekday,"Wed");
-    else if (x == 4)
-        strcpy(weekday,"Thu");
-    else if (x == 5)
-        strcpy(weekday,"Fri");
-    else if (x == 6)
-        strcpy(weekday,"Sat");
-    else
-    {
-        fprintf(stderr, "%s\n", "Error in Weekday No.");
-        return NULL;
-    }
-    return weekday;
 }
-char* getSurnameOfDate(char* date)
-{
-    if (!strcmp("01",date) || !strcmp("21",date) || !strcmp("31",date))
-        return "st";
-    else if (!strcmp("02",date) || !strcmp("22",date) || !strcmp("32",date))
-        return "nd";
-    else if (!strcmp("03",date) || !strcmp("23",date) || !strcmp("33",date))
-        return "rd";
-    else
-        return "th";
-}
-void trimTime(char* time)
-{
-    int len = strlen(time);
-    time[len-3] = '\0';
-    return;
-}
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
