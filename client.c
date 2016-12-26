@@ -64,7 +64,7 @@ void usage(void); // Prints info about app
 void showCommands(void); // Show commands for user
 void printUsers(int serverfd, char *buf); // Show all users
 void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
-void JoinGroup(char* inputGroupName)
+void JoinGroup(char* inputGroupName);
 
 // Asking the user about a chat request
 void ChatRequest(int serverfd, rio_t rio_serverfd, 
