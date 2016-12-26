@@ -42,6 +42,8 @@
 #define CYAN    "\x1b[36m"
 #define RESET   "\x1b[0m" // Reset color code
 #define RESPONSE_TIMEOUT 5
+#define NUMCOLORSFORUSERNAME 5
+
 
 char* color_array[5] = {RED,GREEN,BLUE,CYAN,MAGENTA};
 
@@ -60,7 +62,7 @@ struct ChatBuffer ClientChatBuff;
 void usage(void); // Prints info about app
 void showCommands(void); // Show commands for user
 void printUsers(int serverfd, char *buf); // Show all users
-void startChat(int serverfd, rio_t rio_serverfd, char *name);
+void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
 void startGroup();
 void printHelpInfo(); // prints help info: add later
 
@@ -75,8 +77,11 @@ void ReadingChatFromServer(void *ChatBuffer);
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-
-
+// Time Functions //
+char* returnWeekday(int x);
+void trimTime(char* time);
+char* getSurnameOfDate(char* date);
+/////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// Main Function  /////////////////////////////////
@@ -88,20 +93,11 @@ int main(int argc, char **argv)
 {
     char c;
     char buf[MAXLINE];
-    char* timeString = NULL;
-    char* splitString = NULL;
     char name[MAXLINE];
-
-
     
     name[0] = 0; 
     char *envName = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, envName);
-
-    // Variables to get local time
-    time_t rawtime;
-    struct tm * timeinfo;
-
 
     /////////////////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////
@@ -247,7 +243,11 @@ int main(int argc, char **argv)
 
         else if (!strcmp("chat\n",buf)) 
         {   
-            startChat(serverfd, rio_serverfd, name);
+            startChat(serverfd, rio_serverfd, name,NULL);
+        }
+        else if (strstr(buf,"chat "))
+        {
+            startChat(serverfd, rio_serverfd, name,buf+5);
         }
 
         else if (!strcmp("group\n",buf)) 
@@ -263,19 +263,7 @@ int main(int argc, char **argv)
             printf("Your Username: %s\n", name);
         else 
         {
-            time ( &rawtime );
-            timeinfo = localtime ( &rawtime );
-            splitString  = asctime(timeinfo);
-
-            // Split string to get just the time.
-            timeString = strtok(splitString," ");
-            timeString = strtok(NULL," ");
-            timeString = strtok(NULL," ");
-            timeString = strtok(NULL," ");
-
-            printf(YELLOW"[%s] " GREEN "%s: " RESET "%s", timeString, name, buf); 
-                                // Print back given input (echo it)
-            fflush(stdout); // Flush to screen
+            printf(RED "Invalid Command." RESET " Try Again. Type \"c\" to see commands \n");
         }
     }       
 }
@@ -290,14 +278,22 @@ int main(int argc, char **argv)
 ////////////////////////// Server Functions ///////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-void startChat(int serverfd, rio_t rio_serverfd, char *name)
+void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 {
     char other_user[MAXLINE], // name of the user the client want to chat with
     chatrqst_instr[MAXLINE], buf[MAXLINE];
-    printf("Enter Name/ID: ");
-    fflush(stdout);
-    fgets (other_user, MAXLINE, stdin); // Read command line input
     
+    if (typedName)
+    {
+        strcpy(other_user,typedName);
+    }
+    else
+    {
+        printf("Enter Name/ID: ");
+        fflush(stdout);
+        fgets(other_user, MAXLINE, stdin); // Read command line input   
+    }
+
     // other_user string inherently have a '\n', because it's entered by the user
     // we will copy it to a new variable to remove that \n
     // (stripped from '\n')
@@ -442,12 +438,14 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 {
     char user_text_buf[MAXLINE];
     char meta_info_buf[MAXLINE];
-    char* myColor = color_array[rand()%5];
+    char* myColor = color_array[rand()%NUMCOLORSFORUSERNAME];
 
     time_t rawtime;
-    struct tm * timeinfo;
-    char* timeString;
     char* splitString;
+    char* day;
+    char* date;
+    char* timeOfDay;
+    char* month;
 
     strcpy(user_text_buf,"");
 
@@ -462,35 +460,39 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
     
     printf("\x1b[K>> "); // erase line and start writing
     
-    // Reading client' messages until exit command
-    while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf))
+    // Reading client' messages until exit command or end of file (cntrl+D)
+    while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf)
+                    && !feof(stdin))
     { 
         fflush(stdout);
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
         
         // <my_name> <space> <msg>
-        meta_info_buf[0] = 0; 
-        time ( &rawtime );
-        timeinfo = localtime ( &rawtime );
-        splitString  = asctime(timeinfo);
+        meta_info_buf[0] = 0;
 
-        // Split string to get just the time.
-        timeString = strtok(splitString," ");
-        timeString = strtok(NULL," ");
-        timeString = strtok(NULL," ");
-        timeString = strtok(NULL," ");
-         
+
+        time( &rawtime );
+        splitString = ctime(&rawtime);
+
+        // Split string to get proper time format.
+        day   = strtok(splitString," ");
+        month = strtok(NULL," ");
+        (void)month; // TO avoid compiler issues.
+        date  = strtok(NULL," ");
+        timeOfDay  = strtok(NULL," ");
+        trimTime(timeOfDay);
+
         // Before exiting the chat announce it 
         if (!strcmp("exit\n", user_text_buf) || !strcmp("q\n", user_text_buf))
         {
             // <usr> Exited The Chat
-            sprintf(meta_info_buf, YELLOW "[%s]%s %s " RESET "%s", 
-                   timeString, myColor, client, RED "Exited The Chat\n" RESET); 
+            sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED"%s " RESET "%s", 
+                day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Exited The Chat\n"); 
         }
         else
         {
-            sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", 
-                       timeString, myColor, client, user_text_buf);
+            sprintf(meta_info_buf,YELLOW"[%s-%s%s-%s]%s %s: " RESET "%s", 
+                    day,date,getSurnameOfDate(date),timeOfDay, myColor, client, user_text_buf);
             // delete your line from the terminal
             printf("\x1b[A\x1b[K"); // erase line and start writing
 
@@ -594,9 +596,6 @@ void showCommands(void)
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-
-
-
 // Unimplemented Functions
 void startGroup()
 {
@@ -609,6 +608,51 @@ void printHelpInfo()
 }
 void PrintCurrentTime()
 {
-
-
 }
+
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////// Time Functions; /////////////////////////////////
+char* returnWeekday(int x)
+{
+    char *weekday = calloc(sizeof(char),15);
+    if (x == 0)
+        strcpy(weekday,"Sun");
+    else if (x == 1)
+        strcpy(weekday,"Mon");
+    else if (x == 2)
+        strcpy(weekday,"Tue");
+    else if (x == 3)
+        strcpy(weekday,"Wed");
+    else if (x == 4)
+        strcpy(weekday,"Thu");
+    else if (x == 5)
+        strcpy(weekday,"Fri");
+    else if (x == 6)
+        strcpy(weekday,"Sat");
+    else
+    {
+        fprintf(stderr, "%s\n", "Error in Weekday No.");
+        return NULL;
+    }
+    return weekday;
+}
+char* getSurnameOfDate(char* date)
+{
+    if (!strcmp("01",date) || !strcmp("21",date) || !strcmp("31",date))
+        return "st";
+    else if (!strcmp("02",date) || !strcmp("22",date) || !strcmp("32",date))
+        return "nd";
+    else if (!strcmp("03",date) || !strcmp("23",date) || !strcmp("33",date))
+        return "rd";
+    else
+        return "th";
+}
+void trimTime(char* time)
+{
+    int len = strlen(time);
+    time[len-3] = '\0';
+    return;
+}
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
