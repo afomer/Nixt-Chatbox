@@ -47,7 +47,13 @@ char* color_array[5] = {RED,GREEN,BLUE,CYAN,MAGENTA};
 
 bool useTimeZone = false;
 char myName[MAXLINE];
+struct ChatBuffer
+{
+    char *chat;
+    int serverfd;
+};
 
+struct ChatBuffer ClientChatBuff;
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Function Definitions /////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -63,7 +69,7 @@ void ChatRequest(int serverfd, rio_t rio_serverfd,
                                         char *name, char *other_user); 
 void ChatState(int serverfd, rio_t rio_serverfd, char *name, char *other_user);
 void PrintCurrentTime();
-void ReadingChatFromServer(void *serverfd_ptr);
+void ReadingChatFromServer(void *ChatBuffer);
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -85,6 +91,8 @@ int main(int argc, char **argv)
     char* timeString = NULL;
     char* splitString = NULL;
     char name[MAXLINE];
+
+
     
     name[0] = 0; 
     char *envName = getenv("LOGNAME"); // Gets Username from env. variable
@@ -154,7 +162,9 @@ int main(int argc, char **argv)
 
     /**************/
 
-
+    
+    // A chat buffer for recieving user input while using fgets
+    ClientChatBuff.serverfd = serverfd;
 
     char server_buf[MAXLINE],command[MAXLINE], 
     arg1[MAXLINE], arg2[MAXLINE];
@@ -445,13 +455,16 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 
     /* Spawning a thread to read messages directly from the server and prints them
        to the client's screen directly as they are recieved */
+    ClientChatBuff.chat = user_text_buf;
+    
     pthread_t tid;
-    pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(long *)(&serverfd));
+    pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(&ClientChatBuff));
+    
+    printf("\x1b[K>> "); // erase line and start writing
     
     // Reading client' messages until exit command
     while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf))
     { 
-        printf(">> ");
         fflush(stdout);
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
         
@@ -477,7 +490,10 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
         else
         {
             sprintf(meta_info_buf,YELLOW"[%s]%s %s: " RESET "%s", 
-                       timeString, myColor, client, user_text_buf); 
+                       timeString, myColor, client, user_text_buf);
+            // delete your line from the terminal
+            printf("\x1b[A\x1b[K"); // erase line and start writing
+
         }
 
         rio_writen(serverfd, meta_info_buf, strlen(meta_info_buf) + 1);
@@ -497,9 +513,11 @@ void ChatState(int serverfd, rio_t rio_serverfd, char *client, char *other_user)
 
 // NOTICE: THIS IS INTENDED TO BE AN INFINITE LOOP,
 // AND NEED TO BE TERMINARTED BY THE MAIN thread
-void ReadingChatFromServer(void *serverfd_ptr)
-{
-    int serverfd = *(int *)(long *)(serverfd_ptr);
+void ReadingChatFromServer(void *ChatBuffer)
+{   
+    struct ChatBuffer *ClientChatStruct = (struct ChatBuffer *)ChatBuffer;
+    int serverfd = ClientChatStruct->serverfd;
+    //char **ClientTyped = &(ClientChatStruct->chat);
     char server_buf[MAXLINE];
     int server_buf_not_empty;
     
@@ -511,8 +529,9 @@ void ReadingChatFromServer(void *serverfd_ptr)
         if ( server_buf_not_empty )
         {   
             read(serverfd, server_buf, MAXLINE);
-            printf("\n%s", server_buf);
-            printf(">> ");
+            // print the chat msg starting from the beginning of the line
+            printf("\n\r%s", server_buf); 
+            printf(">> "); // rewrite the deleted user input
             fflush(stdout);
         }
     }
