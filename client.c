@@ -64,14 +64,12 @@ void usage(void); // Prints info about app
 void showCommands(void); // Show commands for user
 void printUsers(int serverfd, char *buf); // Show all users
 void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
-void printHelpInfo(); // prints help info: add later
 void JoinGroup();
 
 // Asking the user about a chat request
 void ChatRequest(int serverfd, rio_t rio_serverfd, 
                                         char *name, char *other_user); 
 void ChatState(int serverfd, char *name, char *other_user);
-void PrintCurrentTime();
 void ReadingChatFromServer(void *ChatBuffer);
 
 
@@ -268,8 +266,13 @@ int main(int argc, char **argv)
         }
         else if (!strcmp("group\n",buf) || !strcmp("grp\n",buf)) 
         {
-            JoinGroup();
+            JoinGroup(NULL);
         }
+        else if (strstr(buf,"group "))
+        {
+            JoinGroup(buf+6);
+        }
+
         else if (!strcmp("groups\n",buf) || !strcmp("grps\n",buf)) 
         {
             printf("Group Chats:\n");
@@ -568,14 +571,22 @@ void ReadingChatFromServer(void *ChatBuffer)
 /*
  * JoinGroup - Join a group chat, or make one if you want to
  */
-void JoinGroup()
+void JoinGroup(char* inputGroupName)
 {
     char GroupName[MAXLINE], // name of the user the client want to chat with
     GroupNameInstruc[MAXLINE], buf[MAXLINE];
-    printf("Group Name/ID: ");
-    fflush(stdout);
-    fgets (GroupName, MAXLINE, stdin); // Read command line input
-    
+
+    if (inputGroupName)
+    {
+        strcpy(GroupName,inputGroupName);
+    }
+    else
+    {
+        printf("Group Name/ID: ");
+        fflush(stdout);
+        fgets (GroupName, MAXLINE, stdin); // Read command line input
+    }
+ 
     // GroupName string inherently have a '\n', because it's entered by the user
     // we will copy it to a new variable to remove that \n
     // (stripped from '\n')
@@ -700,8 +711,6 @@ void printUsers(int serverfd, char *buf)
 ///////////////////////////////////////////////////////////////////////////////
 
 
-
-
 ///////////////////////////////////////////////////////////////////////////////
 ////////////////////////// Utility Functions //////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -726,6 +735,8 @@ void showCommands(void)
     printf(YELLOW "   \"chat\" " RESET " : Start a chat with a user\n");
     printf(YELLOW "   \"chat" GREEN " <name>\" " RESET " : Start a chat with a user with username" GREEN " <name>\n");
     printf(YELLOW "   \"group\"" RESET " : Start a group chat\n");
+    printf(YELLOW "   \"group" GREEN " <groupname>\" " RESET " : Enter group with groupname" GREEN " <groupname>\n");
+    printf(YELLOW "   \"groups\"" RESET " : List open groups\n");
     printf(YELLOW "   \"whois" GREEN " <name>\" " RESET " : Lookup user with username" GREEN " <name>" RESET " on Local Machine\n");
     printf(YELLOW "   \"exit\" " RESET " : Exit\n");
     return;
@@ -734,16 +745,6 @@ void showCommands(void)
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-void printHelpInfo()
-{
-    printf("Chat stuff here bro\n");
-}
-void PrintCurrentTime()
-{
-}
 
 
 ///////////////////////////////////////////////////////////////////////////////
