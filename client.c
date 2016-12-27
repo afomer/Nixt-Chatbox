@@ -57,6 +57,13 @@ struct ChatBuffer
 struct ChatBuffer ClientChatBuff;
 char name[MAXLINE];
 int serverfd;
+
+/* mutex for reading/writing */
+sem_t CommandExecMutex;
+sem_t FgetsMutex;
+int ServerMsg;
+char GlobalUserInput[MAXLINE];
+
 ///////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Function Definitions /////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -67,11 +74,10 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
 void JoinGroup(char* inputGroupName);
 
 // Asking the user about a chat request
-void ChatRequest(int serverfd, rio_t rio_serverfd, 
-                                        char *name, char *other_user); 
+void ChatRequest(int serverfd, char *name, char *other_user); 
 void ChatState(int serverfd, char *name, char *other_user);
 void ReadingChatFromServer(void *ChatBuffer);
-
+void ServerCommands(void *BufPtr);
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -97,7 +103,11 @@ int main(int argc, char **argv)
     char c;
     char buf[MAXLINE];
     serverfd = -1;
-    
+    sem_init(&CommandExecMutex, 0, 1);
+    sem_init(&FgetsMutex, 0, 0);
+
+    ServerMsg = 0;
+
     name[0] = 0; 
     char *envName = getenv("LOGNAME"); // Gets Username from env. variable
     strcat(name, envName);
@@ -164,13 +174,8 @@ int main(int argc, char **argv)
     
     // A chat buffer for recieving user input while using fgets
     ClientChatBuff.serverfd = serverfd;
-
-    char server_buf[MAXLINE],command[MAXLINE], 
-    arg1[MAXLINE], arg2[MAXLINE];
     
     rio_t rio_serverfd;
-    int server_buf_not_empty;
-
 
     printf(GREEN "Welcome to the NIXT ChatBox, " RESET);
     printf(CYAN "%s \n" RESET, name);
@@ -178,6 +183,10 @@ int main(int argc, char **argv)
     printf("Type " YELLOW "\"c\"" RESET " to see possible commands\n");
     
     usleep(500);
+    
+    pthread_t ServerMsgTid;
+    
+    pthread_create(&ServerMsgTid, NULL, (void *)ServerCommands, (void *)(&buf));
 
     while (1) {
 
@@ -193,105 +202,88 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        /******* reading data from the server *******/
-
-        ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
-        if ( server_buf_not_empty )
-        {
-            read(serverfd, server_buf, MAXLINE);
-            
-            if (errno == EPIPE)
-            {
-                printf("Lost Connection with the Chat Server\n");
-                return 1;
-            }
-
-            sscanf(server_buf,"%s %s %s", command, arg1, arg2);
-            
-            if (!strcmp(command, "chatans"))
-            {
-               // Asking the user about a chat request
-               ChatRequest(serverfd, rio_serverfd, name, arg1);
-
-            }
-            else if (!strcmp(command,"quit"))
-            {
-                printf("The Server is Shutting Down ...\n" );
-                close(serverfd);
-            }
-            else if (!strcmp(command,"logged"))
-            {
-                char *logged_in = "This user is already logged in NIXT Chat Server";
-                printf("%s \n", logged_in );
-                close(serverfd);
-                return 0;
-            }
-        }
+ 
         /********************************************/
         printf(">> "); // Type Prompt Symbol 
-        fflush(stdout); // Flush to screen
-        fgets (buf, MAXLINE, stdin); // Read command line input
+        fflush(stdout); // Flush to screen        
+        fgets (GlobalUserInput, MAXLINE, stdin); // Read command line input        
+        sem_post(&FgetsMutex);
 
-        if (!strcmp("c\n",buf))   
+        sem_wait(&CommandExecMutex);
+        if (ServerMsg)
+        {
+            ServerMsg = 0;
+            sem_post(&CommandExecMutex);
+            GlobalUserInput[0] = 0;
+            continue;
+        }
+
+        if (!strcmp("c\n",GlobalUserInput))   
             showCommands();
 
-        else if (!strcmp("exit\n",buf) 
-                 || !strcmp("quit\n",buf)
-                 || !strcmp("q\n",buf) )// Exit client
+        else if (!strcmp("exit\n",GlobalUserInput) 
+                 || !strcmp("quit\n",GlobalUserInput)
+                 || !strcmp("q\n",GlobalUserInput) )// Exit client
         {
+            // Terminating the reading thread
+            pthread_cancel(ServerMsgTid);
             rio_writen(serverfd,"exit",strlen("exit")+1);
             close(serverfd);
             exit(0);
         }
-        else if (!strcmp("chat\n",buf)) 
+        else if (!strcmp("chat\n",GlobalUserInput)) 
         {   
             startChat(serverfd, rio_serverfd, name,NULL);
         }
-        else if (strstr(buf,"chat "))
+        else if (strstr(GlobalUserInput,"chat "))
         {
-            startChat(serverfd, rio_serverfd, name,buf+5);
+            startChat(serverfd, rio_serverfd, name,GlobalUserInput+5);
         }
-        else if (strstr(buf, "whois "))
+        else if (strstr(GlobalUserInput, "whois "))
         {
             printf("***Must have Finger Installed. Lookup on local machine.\n"); 
             printf("Type \"users\" to see users on the chat system.\n");
            
-            char finger_buf[MAXLINE];
-            finger_buf[0] = 0;
+            char finger_GlobalUserInput[MAXLINE];
+            finger_GlobalUserInput[0] = 0;
 
-            strcat(finger_buf,"finger ");
-            strcat(finger_buf, buf+6);
-            system(finger_buf);
+            strcat(finger_GlobalUserInput,"finger ");
+            strcat(finger_GlobalUserInput, GlobalUserInput+6);
+            system(finger_GlobalUserInput);
         }
-        else if (!strcmp("group\n",buf) || !strcmp("grp\n",buf)) 
+        else if (!strcmp("group\n",GlobalUserInput) || !strcmp("grp\n",GlobalUserInput)) 
         {
             JoinGroup(NULL);
         }
-        else if (strstr(buf,"group "))
+        else if (strstr(GlobalUserInput,"group "))
         {
-            JoinGroup(buf+6);
+            JoinGroup(GlobalUserInput+6);
         }
 
-        else if (!strcmp("groups\n",buf) || !strcmp("grps\n",buf)) 
+        else if (!strcmp("groups\n",GlobalUserInput) || !strcmp("grps\n",GlobalUserInput)) 
         {
             printf("Group Chats:\n");
-            printUsers(serverfd, buf);
+            printUsers(serverfd, GlobalUserInput);
         }
-        else if (!strcmp("users\n",buf) )
+        else if (!strcmp("users\n",GlobalUserInput) )
         {
             printf("Online Users:\n");
-            printUsers(serverfd, buf);
+            printUsers(serverfd, GlobalUserInput);
         }
-        else if (!strcmp("clear\n", buf)) // clearing the screen
+        else if (!strcmp("clear\n", GlobalUserInput)) // clearing the screen
         {
             printf("\x1b[2J \033[0;0H");
         }
-        else if (!strcmp("whoami\n",buf) )
+        else if (!strcmp("whoami\n",GlobalUserInput) )
             printf("Your Username: %s\n", name);
         else 
         {
             printf(RED "Invalid Command." RESET " Try Again. Type " YELLOW "\"c\" " RESET "to see commands \n");
         }
+
+        GlobalUserInput[0] = 0;
+        sem_post(&CommandExecMutex);
+
     }       
 }
 
@@ -304,6 +296,61 @@ int main(int argc, char **argv)
 ///////////////////////////////////////////////////////////////////////////////
 ////////////////////////// Server Functions ///////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
+void ServerCommands(void *BufPtr)
+{   
+    char server_buf[MAXLINE],command[MAXLINE], 
+    arg1[MAXLINE], arg2[MAXLINE];
+
+    char **BufAddr = (char **)(BufPtr);
+
+    int server_buf_not_empty = 0;
+    while (true)
+    {
+        /******* reading data from the server *******/
+
+        ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
+        
+        sem_wait(&CommandExecMutex);
+
+        if ( server_buf_not_empty )
+        {
+            ServerMsg = 1;
+
+            read(serverfd, server_buf, MAXLINE);
+            
+            if (errno == EPIPE)
+            {
+                printf("Lost Connection with the Chat Server\n");
+                exit(0);
+            }
+
+            sscanf(server_buf,"%s %s %s", command, arg1, arg2);
+            
+            if (!strcmp(command, "chatans"))
+            {
+               // Asking the user about a chat request
+               ChatRequest(serverfd, name, arg1);
+
+            }
+            else if (!strcmp(command,"quit"))
+            {
+                printf("The Server is Shutting Down ...\n" );
+                close(serverfd);
+                exit(0);
+            }
+            else if (!strcmp(command,"logged"))
+            {
+                char *logged_in = "This user is already logged in NIXT Chat Server";
+                printf("%s \n", logged_in );
+                close(serverfd);
+                exit(0);
+            }
+        }
+
+        sem_post(&CommandExecMutex);
+
+    }
+}
 
 void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 {
@@ -342,24 +389,17 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     strcat(strcat(chatrqst_instr,"chatrqst "), other_user_stripped);
         
     // Asking the server, to invite the other user to join a chat
-    rio_writen(serverfd, chatrqst_instr, sizeof(chatrqst_instr));
+    rio_writen(serverfd, chatrqst_instr, strlen(chatrqst_instr) + 1);
         
     // Wait for the user response, and timeout after 5 seconds
     int other_client_responded = 0;
-    int seconds = 0;
     ioctl(serverfd, SIOCINQ, &other_client_responded);
+    
     while ( !other_client_responded)
     {
         ioctl(serverfd, SIOCINQ, &other_client_responded);
-        usleep(500);
-        seconds++;
     }
 
-    if ( !other_client_responded )
-    {
-        printf("Invitation Timed out\n");
-        return;
-    }
     
     read(serverfd, buf, MAXLINE);
         
@@ -408,16 +448,20 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 
 
 
-void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
+void ChatRequest(int serverfd, char *user, char *other_user)
 {   
     char buf[MAXLINE];
     char other_user_response[MAXLINE];
     
     // tell client about the user that want to chat with him/her
+    printf("\x1b[K\r"); // erase the line and start from the beggining
     printf("%s wants to chat, do you accept? [Y/N] ", other_user);
     fflush(stdout);
+    
+    sem_wait(&FgetsMutex);
+    strcpy(buf, GlobalUserInput);
+    strcpy(GlobalUserInput, "");
 
-    fgets(buf, MAXLINE, stdin); // Read command line input
 
     while(strcmp(buf,"n\n") && strcmp(buf,"N\n") 
         && strcmp(buf,"Y\n") && strcmp(buf,"y\n")
@@ -425,7 +469,7 @@ void ChatRequest(int serverfd, rio_t rio_serverfd, char *user, char *other_user)
         && strcmp(buf,"No\n") && strcmp(buf,"no\n"))
     {
        buf[0] = 0; 
-       printf("Please answer with y or n. ");
+       printf("\nPlease answer with y or n. ");
        fflush(stdout);
        fgets(buf, MAXLINE, stdin); // Read command line input
     }
@@ -479,7 +523,7 @@ void ChatState(int serverfd, char *client, char *other_user)
 
     strcpy(user_text_buf,"");
 
-    //printf( RED "Joined " RESET "Chat with "GREEN "%s" RESET "\n", other_user);
+    printf( RED "Joined " RESET "Chat with "GREEN "%s" RESET "\n", other_user);
 
     /* Spawning a thread to read messages directly from the server and prints them
        to the client's screen directly as they are recieved */

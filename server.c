@@ -869,8 +869,11 @@ void leave_chat_session(chat_session_t chat_session, int client_fd)
       if ( chat_session->users[i] != NULL 
            && chat_session->users[i]->client_fd == client_fd )
       {
-        //free(chat_session->users[i]->username);
-        chat_session->users[i] = NULL;
+          //free(chat_session->users[i]->username);
+          user_t tmp_user = get_user(chat_session->users[i]->username, client_fd);
+          tmp_user->chatting = false;
+
+          chat_session->users[i] = NULL;
       }
 
       sem_post(&read_write_mutex);
