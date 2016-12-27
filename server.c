@@ -100,7 +100,7 @@ void online_user_remove(char *user, int client_fd);
 bool is_chatting(char *client, int client_fd);
 bool group_exist(char *group_name);
 chat_session_t get_chat(char *chat_session_name, bool group_chat);
-
+char *list_users(chat_session_t chat_session);
 /*
  * * * * * * * * * * * * * * * * * * *
  * * * * * * * * * * * * * * * * * * *
@@ -470,6 +470,38 @@ void execute_instrcution(char *client, int client_fd,
         rio_writen(client_fd, users, strlen(users) + 1);
         printf("%s\n", users );
     }
+    else if (!strcmp(command, "list") || !strcmp(command, "list\n")) // list <chat_session_name>
+    {   
+      char users[MAXLINE];
+      users[0] = 0;
+      int i;
+
+      chat_session_t tmp_chat = get_chat(arg1, false);
+
+      printf("arg1 \n");
+
+      if ( tmp_chat == NULL )
+      {
+          rio_writen(client_fd, "", strlen("") + 1);
+      }
+      else
+      {
+
+          for (i = 0; i < MAX_ONLINE; i++)
+          {   
+              sem_wait(&read_write_mutex);
+              if ( tmp_chat->users[i] != NULL)
+              { 
+                strcat(strcat(users, tmp_chat->users[i]->username), " \n");
+                printf("%s\n", tmp_chat->users[i]->username);
+              }
+              sem_post(&read_write_mutex);
+          }
+
+          rio_writen(client_fd, users, strlen(users) + 1);
+          printf("%s\n", users );
+      }
+    }
 
     free(instruct->command);
     free(instruct->arg1);
@@ -745,7 +777,8 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
     // readline, and send to all users in the chat_session
     
     // buffer for reading user messages
-    char *buf = calloc(sizeof(char), MAXLINE);
+    char buf[MAXLINE];
+    buf[0] = 0;
 
     user_t user = get_user(NULL, client_fd);
     
@@ -779,7 +812,7 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
     // TODO: Only start reading when the chat have at least one user
 
     printf("Server-Side: %s joinning chat \n", user->username );
-    
+
     int client_buf_not_empty;
 
     // Send all msgs the user enter to all people in the chat session, except yourself
@@ -795,18 +828,25 @@ void join_chat_session(chat_session_t chat_session, int client_fd, rio_t rio_cli
         {
           read(client_fd, buf, MAXLINE);
 
-          if ( strcmp(buf ,"exit\n") && strcmp(buf ,"exit"))
+          if ( !strcmp("list\n", buf) || !strcmp("users\n", buf)) // list <chat_session_name>
+          {
+            strcpy(buf, list_users(chat_session));
+            printf("%s \n", buf );
+            rio_writen(client_fd, buf, strlen(buf) + 1);
+          }
+          else if ( strcmp(buf ,"exit\n") && strcmp(buf ,"exit"))
             send_to_chat_session(chat_session, buf);
+    
 
           printf(">> %s\n", buf );
 
           printf(">>>> %s\n", buf );
 
-        }
+    }
         
 
     }
-    free(buf);
+
     printf("%s left chat\n", user->username );
     leave_chat_session(chat_session, client_fd);
 
@@ -1263,3 +1303,35 @@ user_t get_user(char *user, int client_fd)
 
 }
 
+char *list_users(chat_session_t chat_session)
+{   
+    char users[MAXLINE];
+    users[0] = 0;
+    int i;
+
+      user_t *chat_users = chat_session->users;
+
+    if ( chat_users == NULL )
+    {
+          return NULL;
+    }
+    else
+    {
+
+          for (i = 0; i < MAX_ONLINE; i++)
+          {   
+              sem_wait(&read_write_mutex);
+              if ( chat_users[i] != NULL)
+              { 
+                strcat(strcat(users, chat_users[i]->username), " \n");
+                printf("%s\n", chat_users[i]->username);
+              }
+              sem_post(&read_write_mutex);
+          }
+
+    }
+
+    printf("users: %s \n", users );
+   
+    return users;
+}

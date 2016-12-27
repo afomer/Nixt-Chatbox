@@ -243,7 +243,6 @@ int main(int argc, char **argv)
             close(serverfd);
             exit(0);
         }
-
         else if (!strcmp("chat\n",buf)) 
         {   
             startChat(serverfd, rio_serverfd, name,NULL);
@@ -282,6 +281,10 @@ int main(int argc, char **argv)
         {
             printf("Online Users:\n");
             printUsers(serverfd, buf);
+        }
+        else if (!strcmp("clear\n", buf)) // clearing the screen
+        {
+            printf("\x1b[2J \033[0;0H");
         }
         else if (!strcmp("whoami\n",buf) )
             printf("Your Username: %s\n", name);
@@ -476,7 +479,7 @@ void ChatState(int serverfd, char *client, char *other_user)
 
     strcpy(user_text_buf,"");
 
-    printf( RED "Joined " RESET "Chat with "GREEN "%s" RESET "\n", other_user);
+    //printf( RED "Joined " RESET "Chat with "GREEN "%s" RESET "\n", other_user);
 
     /* Spawning a thread to read messages directly from the server and prints them
        to the client's screen directly as they are recieved */
@@ -485,13 +488,33 @@ void ChatState(int serverfd, char *client, char *other_user)
     pthread_t tid;
     pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(&ClientChatBuff));
     
-    printf("\x1b[K>> "); // erase line and start writing
-    
+    // <my_name> <space> <msg>
+    meta_info_buf[0] = 0;
+
+
+    time( &rawtime );
+    splitString = ctime(&rawtime);
+
+    // Split string to get proper time format.
+    day   = strtok(splitString," ");
+    month = strtok(NULL," ");
+    (void)month; // TO avoid compiler issues.
+    date  = strtok(NULL," ");
+    timeOfDay  = strtok(NULL," ");
+    trimTime(timeOfDay);
+
+    sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
+            day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Joined The Chat!\n");
+
+    rio_writen(serverfd, meta_info_buf, strlen(meta_info_buf) + 1);
+
+    printf("\x1b[K\r>> "); // erase line and start writing
+
+
     // Reading client' messages until exit command
     while (strcmp("exit\n", user_text_buf) && strcmp("q\n", user_text_buf)
                     && !feof(stdin))
     { 
-        fflush(stdout);
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
         
         // <my_name> <space> <msg>
@@ -513,15 +536,25 @@ void ChatState(int serverfd, char *client, char *other_user)
         if (!strcmp("exit\n", user_text_buf) || !strcmp("q\n", user_text_buf))
         {
             // <usr> Exited The Chat
-            sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED"%s " RESET "%s", 
+            sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
                 day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Exited The Chat\n"); 
+        }
+        else if (!strcmp("clear\n", user_text_buf))
+        {
+            printf("\x1b[2J \033[0;0H");
+        }
+        else if (!strcmp("list\n", user_text_buf) || !strcmp("users\n", user_text_buf))
+        {   
+            //printf("%s\n", buf );
+            printUsers(serverfd, user_text_buf);
+            printf(">> ");
+            continue;
         }
         else
         {
-            sprintf(meta_info_buf,YELLOW"[%s-%s%s-%s]%s %s: " RESET "%s", 
+            sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s %s: " RESET "%s", 
                     day,date,getSurnameOfDate(date),timeOfDay, myColor, client, user_text_buf);
             // delete your line from the terminal
-            printf("\x1b[A\x1b[K"); // erase line and start writing
 
         }
 
@@ -559,7 +592,8 @@ void ReadingChatFromServer(void *ChatBuffer)
         {   
             read(serverfd, server_buf, MAXLINE);
             // print the chat msg starting from the beginning of the line
-            printf("\n\r%s", server_buf); 
+            printf("\r\x1b[K\x1b[A\r\x1b[K"); // erase 2 line and start writing
+            printf("%s", server_buf); 
             printf(">> "); // rewrite the deleted user input
             fflush(stdout);
         }
