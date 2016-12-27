@@ -233,33 +233,55 @@ int main(int argc, char **argv)
         }
         else if (!strcmp("chat\n",GlobalUserInput)) 
         {   
-            startChat(serverfd, rio_serverfd, name,NULL);
+            startChat(serverfd, rio_serverfd, name, NULL);
         }
-        else if (strstr(GlobalUserInput,"chat "))
-        {
-            startChat(serverfd, rio_serverfd, name,GlobalUserInput+5);
-        }
-        else if (strstr(GlobalUserInput, "whois "))
-        {
-            printf("***Must have Finger Installed. Lookup on local machine.\n"); 
-            printf("Type \"users\" to see users on the chat system.\n");
-           
-            char finger_GlobalUserInput[MAXLINE];
-            finger_GlobalUserInput[0] = 0;
 
-            strcat(finger_GlobalUserInput,"finger ");
-            strcat(finger_GlobalUserInput, GlobalUserInput+6);
-            system(finger_GlobalUserInput);
+        // Any of the single-spaced commands
+        else if (strstr(GlobalUserInput," ")) 
+        {
+            char command_name[MAXLINE];
+            char second_command[MAXLINE];
+            int command_len;
+
+            sscanf(GlobalUserInput,"%s %s\n", command_name, second_command);
+            if (!strcmp(command_name,"chat"))
+            {
+
+                //ADDING NEWLINE SO ABUS SHITTY FUNCTION CAN WORK
+                command_len = strlen(second_command);
+                second_command[command_len] = '\n'; 
+                second_command[command_len+1] = '\0';
+
+
+                startChat(serverfd, rio_serverfd, name,second_command);
+            }
+            else if (!strcmp(command_name,"whois"))
+            {
+                printf("***Must have Finger Installed. Lookup on local machine.\n"); 
+                printf("***Type \"users\" to see users on the chat system.\n");
+               
+                char finger_GlobalUserInput[MAXLINE];
+                finger_GlobalUserInput[0] = 0;
+
+                strcat(finger_GlobalUserInput,"finger ");
+                strcat(finger_GlobalUserInput, second_command);
+                system(finger_GlobalUserInput);
+            }
+            else if (!strcmp(command_name,"group"))
+            {
+                //ADDING NEWLINE SO ABUS SHITTY FUNCTION CAN WORK
+                command_len = strlen(second_command);
+                second_command[command_len] = '\n'; 
+                second_command[command_len+1] = '\0';
+
+                JoinGroup(second_command);
+            }
+        
         }
         else if (!strcmp("group\n",GlobalUserInput) || !strcmp("grp\n",GlobalUserInput)) 
         {
             JoinGroup(NULL);
         }
-        else if (strstr(GlobalUserInput,"group "))
-        {
-            JoinGroup(GlobalUserInput+6);
-        }
-
         else if (!strcmp("groups\n",GlobalUserInput) || !strcmp("grps\n",GlobalUserInput)) 
         {
             printf("Group Chats:\n");
@@ -352,6 +374,8 @@ void ServerCommands(void *BufPtr)
     }
 }
 
+
+// Warning: Function takes typedName with a new line at the end, something my partner failed to mention //
 void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 {
     char other_user[MAXLINE], // name of the user the client want to chat with
@@ -360,6 +384,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     if (typedName)
     {
         strcpy(other_user,typedName);
+
     }
     else
     {
@@ -368,6 +393,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
         fgets(other_user, MAXLINE, stdin); // Read command line input   
     }
 
+
     // other_user string inherently have a '\n', because it's entered by the user
     // we will copy it to a new variable to remove that \n
     // (stripped from '\n')
@@ -375,7 +401,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     char other_user_stripped[other_user_len];
     memcpy(other_user_stripped, other_user, other_user_len);
     other_user_stripped[other_user_len - 1] = '\0';
-    
+  
     if(!strcmp(other_user_stripped, name))
     {
         printf("You Can't Chat With Yourself :] \n");
