@@ -516,6 +516,7 @@ void ChatState(int serverfd, char *client, char *other_user)
                     && !feof(stdin))
     { 
         fgets (user_text_buf, MAXLINE, stdin); // Read command line input
+        printf("\x1b[A\x1b[K\r");// delete your line from the terminal
         
         // <my_name> <space> <msg>
         meta_info_buf[0] = 0;
@@ -554,7 +555,6 @@ void ChatState(int serverfd, char *client, char *other_user)
         {
             sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s %s: " RESET "%s", 
                     day,date,getSurnameOfDate(date),timeOfDay, myColor, client, user_text_buf);
-            // delete your line from the terminal
 
         }
 
@@ -592,7 +592,7 @@ void ReadingChatFromServer(void *ChatBuffer)
         {   
             read(serverfd, server_buf, MAXLINE);
             // print the chat msg starting from the beginning of the line
-            printf("\r\x1b[K\x1b[A\r\x1b[K"); // erase 2 line and start writing
+            printf("\n\r\x1b[K\x1b[A\r\x1b[K"); // erase 2 line and start writing
             printf("%s", server_buf); 
             printf(">> "); // rewrite the deleted user input
             fflush(stdout);
