@@ -1431,7 +1431,7 @@ char *list_users(chat_session_t chat_session)
 
     }
     
-    char *tmp_user = users;
+    char *tmp_user = users; // to silence a warning 
    
     return tmp_user;
 }

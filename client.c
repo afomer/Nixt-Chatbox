@@ -163,7 +163,7 @@ int main(int argc, char **argv)
     
     // As a handshake between the server and the client, the name of the
     // user is sent to the server, first.
-    rio_writen(serverfd, name, sizeof(name) + 1);
+    rio_writen(serverfd, name, strlen(name) + 1);
 
     /**************/
 
@@ -204,10 +204,11 @@ int main(int argc, char **argv)
         /********************************************/
         printf(">> "); // Type Prompt Symbol 
         fflush(stdout); // Flush to screen        
-        fgets(GlobalUserInput, MAXLINE, stdin); // Read command line input        
+        fgets(GlobalUserInput, MAXLINE, stdin); // Read command line input             
         sem_post(&FgetsMutex);
 
         sem_wait(&CommandExecMutex);
+
         if (ServerMsg)
         {
             ServerMsg = 0;
@@ -327,8 +328,7 @@ int main(int argc, char **argv)
         else 
             printf(RED "Invalid Command." RESET " Try Again. Type " YELLOW "\"c\" " RESET "to see commands \n");
 
-
-        GlobalUserInput[0] = 0;
+        sem_wait(&FgetsMutex);
         sem_post(&CommandExecMutex);
 
     }       
@@ -355,6 +355,7 @@ void ServerCommands(void *BufPtr)
     while (true)
     {
         /******* reading data from the server *******/
+        server_buf_not_empty = 0;
 
         ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
         
@@ -453,7 +454,6 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     read(serverfd, buf, MAXLINE);
         
     char command[MAXLINE], arg1[MAXLINE], arg2[MAXLINE];
-    printf("c:%s \n", command );
 
     sscanf(buf,"%s %s %s",command, arg1, arg2);
     
@@ -502,46 +502,53 @@ void ChatRequest(int serverfd, char *user, char *other_user)
     char buf[MAXLINE];
     char other_user_response[MAXLINE];
     
+
     // tell client about the user that want to chat with him/her
     printf("\x1b[K\r"); // erase the line and start from the beggining
     printf("%s wants to chat, do you accept? [Y/N] ", other_user);
     fflush(stdout);
     
     sem_wait(&FgetsMutex);
-    strcpy(buf, GlobalUserInput);
-    strcpy(GlobalUserInput, "");
-
+    
+    printf("%s\n",GlobalUserInput );
+     
     // Loop until users answers correctly
-    while(strcmp(buf,"n\n") && strcmp(buf,"N\n") 
-        && strcmp(buf,"Y\n") && strcmp(buf,"y\n")
-        && strcmp(buf,"Yes\n") && strcmp(buf,"yes\n")
-        && strcmp(buf,"No\n") && strcmp(buf,"no\n"))
+    while(strcmp(GlobalUserInput,"n\n") && strcmp(GlobalUserInput,"N\n") 
+        && strcmp(GlobalUserInput,"Y\n") && strcmp(GlobalUserInput,"y\n")
+        && strcmp(GlobalUserInput,"Yes\n") && strcmp(GlobalUserInput,"yes\n")
+        && strcmp(GlobalUserInput,"No\n") && strcmp(GlobalUserInput,"no\n"))
     {
-       buf[0] = 0; 
        printf("\nPlease answer with y or n. ");
        fflush(stdout);
-       fgets(buf, MAXLINE, stdin); // Read command line input
+       fgets(GlobalUserInput, MAXLINE, stdin); // Read command line input
     }
-    
-    other_user_response[0] = 0; 
+        
 
-    if (!strcmp(buf,"n\n") || !strcmp(buf,"N\n") ||
-        !strcmp(buf,"no\n") || !strcmp(buf,"No\n"))
+    if (!strcmp(GlobalUserInput,"n\n") || !strcmp(GlobalUserInput,"N\n") ||
+        !strcmp(GlobalUserInput,"no\n") || !strcmp(GlobalUserInput,"No\n"))
     {   
+                
         // chatansno , answering no for a chat request (Chat Answer No)
-        strcat(strcat(other_user_response, "chatansno "), other_user);
+        strcpy(other_user_response, "chatansno ");
+        strcat(other_user_response, other_user);
         rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
         printf( RED "Rejected " RESET BLUE "Chat invitation from " RESET GREEN "%s\n" RESET, other_user);
         return;
     }
     else
     {
+
         // chatansyes , answering yes for a chat request (Chat Answer yes)
-        strcat(strcat(other_user_response, "chatansyes "), other_user);
+        strcpy(other_user_response, "chatansyes ");
+        strcat(other_user_response, other_user);
         rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
         ChatState(serverfd, user, other_user);
     }
+    
+    GlobalUserInput[0] = 0; 
 
+    other_user_response[0] = 0; 
+    
     return;
 }
 
@@ -668,7 +675,6 @@ void ChatState(int serverfd, char *client, char *other_user)
 
 /*
  * ReadingChatFromServer - Main Reading Function
-
    AND NEED TO BE TERMINARTED BY THE MAIN thread
    NOTICE: THIS IS INTENDED TO BE AN INFINITE LOOP,
  */
@@ -828,7 +834,7 @@ void printUsers(int serverfd, char *buf)
     char users[MAXLINE];
 
     // Request Users to server
-    rio_writen(serverfd, buf, sizeof(buf));
+    rio_writen(serverfd, buf, strlen(buf) + 1);
 
     // Read Server Response
     read(serverfd, users, MAXLINE);
