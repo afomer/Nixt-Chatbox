@@ -499,7 +499,6 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 
 void ChatRequest(int serverfd, char *user, char *other_user)
 {   
-    char buf[MAXLINE];
     char other_user_response[MAXLINE];
     
 
@@ -510,7 +509,7 @@ void ChatRequest(int serverfd, char *user, char *other_user)
     
     sem_wait(&FgetsMutex);
     
-    printf("%s\n",GlobalUserInput );
+    // printf("%s\n",GlobalUserInput );
      
     // Loop until users answers correctly
     while(strcmp(GlobalUserInput,"n\n") && strcmp(GlobalUserInput,"N\n") 
@@ -601,7 +600,7 @@ void ChatState(int serverfd, char *client, char *other_user)
     timeOfDay  = strtok(NULL," ");
     trimTime(timeOfDay);
 
-    sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
+    sprintf(meta_info_buf, GREEN "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
             day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Joined The Chat!\n");
 
     rio_writen(serverfd, meta_info_buf, strlen(meta_info_buf) + 1);
