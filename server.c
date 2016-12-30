@@ -12,18 +12,18 @@
  *                                                                            *
  *  The Server initially, after establishing a conncetion with the client,    *
  *  recieves the name of the user. After that the username is stored in       *
- *  the array of online users. After that commands are waited from the client * 
+ *  the array of online users. After that commands are waited from the client *
  *  to either send, recieve msgs or join group chats.                         *
- *  
+ *                                                                            *
  *  UPCOMING...                                                               *
- *
+ *                                                                            *
  *  ** Assigning usernames **                                                 *
- *                                                                            *                                       *
+ *                                                                            *
  *                                                                            *
  *  ** Sending Msgs **                                                        *
- *                                                                            *                                                                            *
+ *                                                                            *
  *  ** Recieving Msgs **                                                      *
- *                                                                            *                                                                            *
+ *                                                                            *
  *                                                                            *
  *  ************************************************************************  *
 
@@ -64,7 +64,6 @@
 ****************************************************************************
 ----------------------------------------------------------------------------
 ****************************************************************************
-
 */
 
 /*
