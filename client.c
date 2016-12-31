@@ -1,7 +1,7 @@
 /*
 
  ******************************************************************************
- *                                   server.c                                 *
+ *                                   client.c                                 *
  *                         The client of the NIXT-Chatbox                     *
  *                          Julian Sam & Abubaker Omer                        *
  *                       Date Created: 17th December 2016                     *
@@ -147,8 +147,8 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName);
 void JoinGroup(char* inputGroupName);
 void ChatRequest(int serverfd, char *name, char *other_user); 
 void ChatState(int serverfd, char *name, char *other_user);
-void ReadingChatFromServer(void *ChatBuffer);
-void ServerCommands(void *BufPtr);
+void ReadingChatFromServer(void);
+void ServerCommands(void);
 char* fgets_with_saved_buffer(char *dst, int max);
 void trimTime(char* time);          
 char* getSurnameOfDate(char* date); 
@@ -159,6 +159,30 @@ char* getSurnameOfDate(char* date);
 ****************************************************************************
 */
 
+/*
+****************************************************************************
+----------------------------- Signal Handlers -------------------------------
+****************************************************************************
+*/
+
+/*
+ * sigint_handler: 
+ * a signal handler for SIGINT signals
+ * most probably the user enter Ctrl-C
+ */
+void sigint_handler(int signal)
+{
+    rio_writen(serverfd,"exit",strlen("exit")+1);
+    printf("\r--> GoodBye =] !\n");
+    close(serverfd);
+    exit(0);
+}
+
+/*
+****************************************************************************
+----------------------------------------------------------------------------
+****************************************************************************
+*/
 
 /*
 *********************************************
@@ -176,7 +200,6 @@ int main(int argc, char **argv)
 {
     /* Flag holder char var to go through inputted flags */
     char flag_holder;
-    char buf[MAXLINE];
 
     /* Initialize robust I/O server file descriptor */
     rio_t rio_serverfd;
@@ -197,15 +220,13 @@ int main(int argc, char **argv)
     sprintf(name, "%s", getenv("LOGNAME")); 
 
 
-    /************************************************************************/
-    /////delete after testing////
-    // appeding a random number to your username. (in case of duplicates)
-    time_t t;
+    /************************ Uncomment for debugging purposes ****************************/
+    // let you login with the same login name, by appening a random number next to your name
+    /* time_t t;
     char str[50];
-    /* Intializes random number generator */
     srand((unsigned) time(&t));
-    sprintf(str, "%d", (rand() % 500));
-    strcat(name,str);
+    sprintf(str, "%d", (rand() % 100));
+    strcat(name,str); */
     /************************************************************************/
 
     /* Print error message if port number or IP is not inputted */
@@ -242,7 +263,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "Could not connect to the server\n");
         exit(1);
     }
-    
+
+    /* Signal Handler for SIGINT */
+    signal(SIGINT,  sigint_handler);   /* ctrl-c */
+
     /* As a handshake between the server and the client, the name of the
        user is sent to the server, first. */
 
@@ -250,10 +274,6 @@ int main(int argc, char **argv)
 
     /******************************************/
     
-    /*A chat buffer for recieving user input while using fgets*/
-    ClientChatBuff.serverfd = serverfd;
-    
-
     /* Begin printing to screen for the user */
     printf(GREEN "Welcome to the NIXT ChatBox, " RESET);
     printf(CYAN "%s \n" RESET, name);
@@ -264,7 +284,7 @@ int main(int argc, char **argv)
     usleep(500);
     
     /* Creaete thread used to give new chat requests*/
-    pthread_create(&ServerMsgTid, NULL, (void *)ServerCommands, (void *)(&buf));
+    pthread_create(&ServerMsgTid, NULL, (void *)ServerCommands, (void *)(NULL));
 
     while (1) {
 
@@ -287,11 +307,17 @@ int main(int argc, char **argv)
         fflush(stdout); /* Flush to screen */        
         fgets(GlobalUserInput, MAXLINE, stdin); /* Read command line input */ 
 
-        /* Add Here Abu - Please add comments for these mutexes */
+        /* Unlock FgetsMutex to let the code in the ChatRequest use 
+           user input for the current fgets */
+
+        /* Lock CommandExecMutex until the user commands are executed */
         sem_post(&FgetsMutex);
         sem_wait(&CommandExecMutex);
 
-        // If first time, then lock
+        // if the command came from the server, it was handled by the 
+        // ServerCommand thread. Thus, unlock the CommandExecMutex and 
+        // go on to the next iteration, to skip going through all the 
+        // following user commands
         if (ServerMsg)
         {
             ServerMsg = 0;
@@ -377,19 +403,22 @@ int main(int argc, char **argv)
 
             /*Invalid command message*/
             else
-                printf(RED "Invalid Command." RESET " Try Again. Type " YELLOW "\"c\" " RESET "to see commands \n");
+                printf(RED "Invalid Command." RESET " Try Again. Type "
+                        YELLOW "\"c\" " RESET "to see commands \n");
 
         
         }
 
         /*Start a group chat*/
-        else if (!strcmp("group\n",GlobalUserInput) || !strcmp("grp\n",GlobalUserInput)) 
+        else if (!strcmp("group\n",GlobalUserInput) 
+                 || !strcmp("grp\n",GlobalUserInput)) 
         {
             JoinGroup(NULL);
         }
 
         /* Print group chats that are online */
-        else if (!strcmp("groups\n",GlobalUserInput) || !strcmp("grps\n",GlobalUserInput)) 
+        else if (!strcmp("groups\n",GlobalUserInput) 
+                 || !strcmp("grps\n",GlobalUserInput)) 
         {
             printf("Group Chats:\n");
             printUsers(serverfd, GlobalUserInput);
@@ -414,9 +443,15 @@ int main(int argc, char **argv)
         
         /* Show invalid command message */
         else 
-            printf(RED "Invalid Command." RESET " Try Again. Type " YELLOW "\"c\" " RESET "to see commands \n");
-
+            printf(RED "Invalid Command." RESET " Try Again. Type " YELLOW 
+                "\"c\" " RESET "to see commands \n");
+        
+        // Lock FgetsMutex, so if the ServerCommand thread ran first, it 
+        // waits for fgets
         sem_wait(&FgetsMutex);
+        
+        // Unlock CommandExecMutex. So, ServerCommand can execute server 
+        // it commands, if there is
         sem_post(&CommandExecMutex);
 
     }       
@@ -431,18 +466,16 @@ int main(int argc, char **argv)
 ///////////////////////////////////////////////////////////////////////////////
 
 /*
- * ServerCommands: Add Here Abu
- *  Please add comments for this function
+ * ServerCommands: Listining to server commands, built
+ * to be a thread in an infinite loop.
  */
-void ServerCommands(void *BufPtr)
+void ServerCommands(void)
 {   
     char server_buf[MAXLINE],command[MAXLINE], 
     arg1[MAXLINE], arg2[MAXLINE];
 
-    // Add Here Abu - Remove lines below if you dont need they only cause compiler warnings
-    // ARemove following line if not needed:
-    // char **BufAddr = (char **)(BufPtr);
-
+    // keep checking the server socket, lock with the CommandExecMutex mutex 
+    // and execute server commands when you recieve them
     int server_buf_not_empty = 0;
     while (true)
     {
@@ -451,6 +484,8 @@ void ServerCommands(void *BufPtr)
 
         ioctl(serverfd, SIOCINQ, &server_buf_not_empty);
         
+        // make reading and executing server commands atomic (uninterrupted)
+        // by using CommandExecMutex mutex
         sem_wait(&CommandExecMutex);
 
         if ( server_buf_not_empty )
@@ -481,7 +516,9 @@ void ServerCommands(void *BufPtr)
             }
             else if (!strcmp(command,"logged"))
             {
-                char *logged_in = "This user is already logged in NIXT Chat Server";
+                char *logged_in = 
+                "This user is already logged in NIXT Chat Server";
+                
                 printf("%s \n", logged_in );
                 close(serverfd);
                 exit(0);
@@ -492,7 +529,7 @@ void ServerCommands(void *BufPtr)
 }
 
 /*
- * startChat: Add Here Abu
+ * startChat: Starting a chat with an online user on the server
  * Please add comments for this function
  * Warning: Function takes typedName with a new line at the end.
  */
@@ -544,7 +581,7 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     // Wait for the user response, and timeout after 5 seconds
     int other_client_responded = 0;
 
-    /* Add Here Abu idk what this is pls add comments below*/
+    /* wait until you recieve data at the server socket, then read them */
     ioctl(serverfd, SIOCINQ, &other_client_responded);
     
     while ( !other_client_responded)
@@ -561,17 +598,20 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
     
     if (!strcmp("offline", command) || !strcmp("offline\n", command))
     {
-        printf(RED "%s " RESET "is " BLUE "offline" RESET "/" GREEN "unavailable\n" RESET, other_user_stripped);
+        printf(RED "%s " RESET "is " BLUE "offline" RESET
+         "/" GREEN "unavailable\n" RESET, other_user_stripped);
         return;
     }
     else if (!strcmp("chatting", command) || !strcmp("chatting", command) )
     {
-        printf("%s is busy/chatting with someone else =] \n", other_user_stripped);
+        printf("%s is busy/chatting with someone else =] \n"
+              , other_user_stripped);
         return;
     }
     else if (!strcmp("rejected", command))
     {
-        printf(RED "%s " RESET GREEN "Rejected your Chat invitation \n" RESET , arg1);
+        printf(RED "%s " RESET GREEN "Rejected your Chat invitation \n"
+              RESET , arg1);
         return;
     }
 
@@ -598,8 +638,9 @@ void startChat(int serverfd, rio_t rio_serverfd, char *name, char* typedName)
 }
 
 /*
- * ChatRequest: Add Here Abu
- * Please add comments for this function
+ * ChatRequest: Recieving a chat request from another online user.
+ * whether the client accepted or declined the chat request, let the other user know,
+ * and go into a ChatState, if the client accepted.
  */
 void ChatRequest(int serverfd, char *user, char *other_user)
 {   
@@ -632,7 +673,8 @@ void ChatRequest(int serverfd, char *user, char *other_user)
         strcpy(other_user_response, "chatansno ");
         strcat(other_user_response, other_user);
         rio_writen(serverfd, other_user_response, strlen(other_user_response) + 1);
-        printf( RED "Rejected " RESET BLUE "Chat invitation from " RESET GREEN "%s\n" RESET, other_user);
+        printf( RED "Rejected " RESET BLUE "Chat invitation from " RESET 
+                GREEN "%s\n" RESET, other_user);
         return;
     }
     else
@@ -686,9 +728,8 @@ void ChatState(int serverfd, char *client, char *other_user)
 
     /* Spawning a thread to read messages directly from the server and prints 
        them to the client's screen directly as they are recieved */
-    ClientChatBuff.chat = user_text_buf;
     
-    pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(&ClientChatBuff));
+    pthread_create(&tid, NULL, (void *)ReadingChatFromServer, (void *)(NULL));
     
     /* Emtpy the buffer */
     meta_info_buf[0] = 0;
@@ -709,7 +750,8 @@ void ChatState(int serverfd, char *client, char *other_user)
 
     /* Input proper buffer format */
     sprintf(meta_info_buf, GREEN "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
-            day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Joined The Chat!\n");
+            day,date,getSurnameOfDate(date),timeOfDay, myColor, client,
+            "Joined The Chat!\n");
 
     /* Write the string to the serer */
     rio_writen(serverfd, meta_info_buf, strlen(meta_info_buf) + 1);
@@ -748,7 +790,8 @@ void ChatState(int serverfd, char *client, char *other_user)
         if (!strcmp("exit\n", user_text_buf) || !strcmp("q\n", user_text_buf))
         {
             sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s" RED" %s " RESET "%s", 
-                day,date,getSurnameOfDate(date),timeOfDay, myColor, client,"Exited The Chat\n"); 
+                day,date,getSurnameOfDate(date),timeOfDay, myColor, client,
+                "Exited The Chat\n"); 
         }
         /* Clear command to clear prompt */
         else if (!strcmp("clear\n", user_text_buf))
@@ -767,7 +810,8 @@ void ChatState(int serverfd, char *client, char *other_user)
         else
         {
             sprintf(meta_info_buf, YELLOW "[%s-%s%s-%s]%s %s: " RESET "%s", 
-                    day,date,getSurnameOfDate(date),timeOfDay, myColor, client, user_text_buf);
+                    day,date,getSurnameOfDate(date),timeOfDay, myColor, 
+                                                    client, user_text_buf);
         }
 
         /* Write to server */
@@ -793,14 +837,8 @@ void ChatState(int serverfd, char *client, char *other_user)
  * Warning: Needs to be terminated by the main thread
  * THIS IS INTENDED TO BE AN INFINITE LOOP,
  */
-void ReadingChatFromServer(void *ChatBuffer)
+void ReadingChatFromServer()
 {   
-    struct ChatBuffer *ClientChatStruct = (struct ChatBuffer *)ChatBuffer;
-    int serverfd = ClientChatStruct->serverfd;
-
-    /* Add Here Abu - Please remove this line below if unnecesary*/
-    //char **ClientTyped = &(ClientChatStruct->chat);
-
 
     char server_buf[MAXLINE];
     int server_buf_not_empty;
@@ -820,7 +858,8 @@ void ReadingChatFromServer(void *ChatBuffer)
             printf(">> "); 
 
             /* Rewrite the deleted user input in case new message interupts */
-            if (strcmp(backup_buffer,"\n") && backup_buffer[strlen(backup_buffer)-1] != '\n')
+            if (strcmp(backup_buffer,"\n") 
+                && backup_buffer[strlen(backup_buffer)-1] != '\n')
                 printf("%s", backup_buffer);
 
             /* Flush to screen */
@@ -831,8 +870,8 @@ void ReadingChatFromServer(void *ChatBuffer)
     return;
 }
 
-/*  Add Here Abu, please add comments here to this function abu and remove this line.
- * JoinGroup - Join a group chat, or make one if you want to
+/*
+ * JoinGroup - Join a group chat, or make one if it's not created yet.
  */
 void JoinGroup(char* inputGroupName)
 {
@@ -920,7 +959,8 @@ void JoinGroup(char* inputGroupName)
 
             if ( !strcmp("created", command) || !strcmp("created\n", command))
             {
-                printf(RED "Created group " RESET BLUE "%s !" RESET "\n", GroupNameStripped);
+                printf(RED "Created group " RESET BLUE "%s !" RESET "\n"
+                    , GroupNameStripped);
             }
             else
             {
@@ -987,13 +1027,21 @@ void usage(void)
 void showCommands(void)
 {
     printf("User Commands:\n");
+    
     printf(YELLOW "   \"users\"" RESET " : Show users on this machine\n");
+    
     printf(YELLOW "   \"chat\" " RESET " : Start a chat with a user\n");
+    
     printf(YELLOW "   \"chat" GREEN " <name>\" " RESET " : Start a chat with a user with username" GREEN " <name>\n");
+    
     printf(YELLOW "   \"group\"" RESET " : Start a group chat\n");
+    
     printf(YELLOW "   \"group" GREEN " <groupname>\" " RESET " : Enter group with groupname" GREEN " <groupname>\n");
+    
     printf(YELLOW "   \"groups\"" RESET " : List open groups\n");
-    printf(YELLOW "   \"whois" GREEN " <name>\" " RESET " : Lookup user with username" GREEN " <name>" RESET " on Local Machine\n");
+    
+    printf(YELLOW "   \"whois" GREEN " <name>\" " RESET " :  Lookup user with username" GREEN " <name>" RESET " on Local Machine\n");
+    
     printf(YELLOW "   \"exit\" " RESET " : Exit\n");
     return;
 }
