@@ -1,5 +1,7 @@
 # NIXT Chatbox
 
+![alt text](logo_unix-chatbox-nobox.jpg)
+
 
 NIXT Chatbox is Unix-based is a multi-threaded instant messaging system that allows both private and group
 chats, developed in C. 
