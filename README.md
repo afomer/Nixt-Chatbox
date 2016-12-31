@@ -1,6 +1,6 @@
 # NIXT Chatbox
 
-![alt text](libs/logo_unix-chatbox-nobox.jpg)
+![alt text](img/logo_unix-chatbox-nobox.jpg)
 
 
 NIXT Chatbox is Unix-based is a multi-threaded instant messaging system that allows both private and group
