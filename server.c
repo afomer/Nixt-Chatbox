@@ -340,6 +340,8 @@ void serve_client(void* fd_ptr)
         
     }
     
+    // remove the client from the online users array and then close the connection with him/her
+    online_user_remove(username, client_fd);
     close(client_fd);
     return;
 
