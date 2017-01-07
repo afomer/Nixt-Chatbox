@@ -13,7 +13,7 @@ As Carnegie Mellon computer science students we ssh to afs (Andrew File System) 
 
 - clone the repo
 ``` shell
-git clone https://github.com/afomer/Nixt-Chatbox
+git clone https://github.com/afomer/Nixt-Chatbox.git
 ```
 - Compile the code
 ``` shell
